@@ -1,0 +1,45 @@
+| RAW image      | Rozložení / zvláštnost                                      | Co má test ověřit                                                                                                                          |
+| -------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **test01.raw** | MBR, **FAT16**, MBD                                         | Základní případ. Detekce MBR, FAT16, nalezení MBD a výpočet jeho absolutního LBA.                                                          |
+| **test02.raw** | MBR, **FAT32**, MBD                                         | Základní FAT32. Detekce FAT32, výpočet Data Area a LBA MBD.                                                                                |
+| **test03.raw** | MBR, FAT32, **RootClus = 10000**                            | FAT32 root není v clusteru 2. Ověření výpočtu `RootDirLBA = DataStart + (RootClus-2)*SecPerClus`.                                          |
+| **test04.raw** | **4 platné partition**, kombinace FAT16/FAT32               | Zpracování všech čtyř MBR entries, samostatné LBA a VDT záznamy pro P1–P4.                                                                 |
+| **test05.raw** | **FAT16 Superfloppy**                                       | Žádný MBR; FAT16 boot sektor přímo v LBA 0. Rozlišení MBR vs. superfloppy.                                                                 |
+| **test06.raw** | **FAT32 Superfloppy**                                       | Totéž pro FAT32. Boot sektor přímo v LBA 0 a správný výpočet FAT32 datové oblasti.                                                         |
+| **test07.raw** | FAT16, MBD až mezi dalšími directory entries                | Ověření prohledávání prvních 8 fyzických položek root directory. `TEST6.MBD` není hned na začátku.                                         |
+| **test08.raw** | FAT16, MBD **mimo prvních 8 entries**                       | Ověření limitu hledání. EasySD musí skončit `No Data`, nikoliv pokračovat dál. Současně test větve `No Data`.                              |
+| **test09.raw** | P1 EMPTY, **P2 FAT16**, P3 EMPTY, **P4 FAT32**              | „Děravá“ MBR tabulka. Ověření správného mapování partition ↔ VDT při prázdných entries mezi platnými partition.                            |
+| **test10.raw** | **FAT16 / NTFS / exFAT / FAT32**                            | Kombinace podporovaných a nepodporovaných filesystemů. NTFS/exFAT musí být `Other`, nesmí být použitelné a nesmí rozhodit následující VDT. |
+| **test11.raw** | FAT16+MBD / **FAT32 No Data** / FAT16+MBD / EMPTY           | `No Data` **uprostřed** seznamu. Ověření, že neplatná P2 neposune VDT a následující P3 zůstane správně mapovaná.                           |
+| **test12.raw** | **Other / FAT16 / FAT32 / Other**                           | `Other` na obou krajích MBR. Ověření přechodu `Other → valid → valid → Other` a správného VDT.                                             |
+| **test13.raw** | EMPTY / Other / **FAT16 No Data** / EMPTY                   | Stav, kdy **není použitelná vůbec žádná partition**. Všechny položky musí být odmítnuty bez pádu či poškození stacku/VDT.                  |
+| **test14.raw** | FAT16, MBD short entry **přesně na 8. kontrolované pozici** | Hraniční test vyhledávací smyčky. Osmá položka ještě musí být nalezena; kontrola případné `off-by-one` chyby.                              |
+| **test15.raw** | **Žádný MBR, žádný FAT**, neinicializované médium           | Odolnost proti úplně prázdnému/neplatnému médiu. EasySD nesmí data interpretovat jako filesystem ani havarovat.                            |
+
+
+
+SD
+│
+├── LBA0 = FAT boot sector
+│   ├── FAT16 Superfloppy ........ TEST05
+│   └── FAT32 Superfloppy ........ TEST06
+│
+├── LBA0 = MBR
+│   │
+│   ├── FAT16 .................... TEST01
+│   ├── FAT32 .................... TEST02
+│   ├── FAT32 RootClus != 2 ...... TEST03
+│   ├── 4× platná partition ...... TEST04
+│   ├── Empty mezi validními ..... TEST09
+│   ├── Other mezi validními ..... TEST10
+│   ├── No Data mezi validními ... TEST11
+│   ├── Other na krajích ......... TEST12
+│   └── žádná validní partition .. TEST13
+│
+├── hledání MBD
+│   ├── uvnitř limitu ............ TEST07
+│   ├── za limitem ............... TEST08
+│   └── přesně na hranici ........ TEST14
+│
+└── neplatné/neinicializované
+    └── žádný MBR ani FAT ......... TEST15

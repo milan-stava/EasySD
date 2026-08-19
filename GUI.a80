@@ -239,12 +239,13 @@ MASTERINFO
 	ld	hl,Manufacturer31
 	jr	z,mdl1
 	cp	#74
-	ld	hl,Manufacturer1
+	ld	hl,Manufacturer74
+	jr	z,mdl1
+	cp	#9f			; Kingston SD (CID MID #9F)
+	ld	hl,Manufacturer9f
 	jr	z,mdl1
 	ld	ix,BUFFER
-	ld	hl,TEXT15+4	;Other manufacturer
-	set	7,(hl)
-	ld	hl,TEXT15
+	ld	hl,ManufacturerOther	; unknown manufacturer, keep normal cyan info colour
 
 ;	set	7,(ix+84)
 
@@ -283,10 +284,23 @@ mdl1	dec	hl
 ;	call	T42_TEXT
 
 	inc	hl
-	ld	l,(hl)
-	ld	h,0
+	ld	a,(hl)		; CID PRV: high nibble=major, low nibble=minor
+	ld	b,a
+	rrca
+	rrca
+	rrca
+	rrca
+	and	#0f
+	add	a,'0'
+	ld	(REV_TEXT),a
+	ld	a,b
+	and	#0f
+	add	a,'0'
+	or	#80		; posledni znak textu pro T42_TEXT
+	ld	(REV_TEXT+2),a
+	ld	hl,REV_TEXT
 	ld	bc,#0616
-	call	NUMBER2
+	call	T42_TEXT
 
 ;serial number/ProductSerialNr
 ;	ld	hl,BUFFER+20
@@ -369,7 +383,7 @@ csd201	srl	h
 	inc	hl
 
 	ld	bc,#0920
-	call	NUMBER1		;udaj v GB
+	call	CAPACITY_NUMBER	;udaj v GB, 2-4 cifry podle velikosti
 	inc	c
 	ld	hl,TEXT_GB
 	call	T42_TEXT
@@ -2357,9 +2371,12 @@ Manufacturer1d	dc	"AData"
 Manufacturer27	dc	"Phison"
 Manufacturer31	dc	"Silicon Power"
 Manufacturer74	dc	"Transcend"
+Manufacturer9f	dc	"Kingston"
+ManufacturerOther	dc	"Other"
 carka		dc	","
 lomeno		dc	"/"
 TEXT_GB		dc	"G"
+REV_TEXT	db	"0.","0"+#80	; CID Product Revision, napr. #61 -> 6.1
 TEXT_CSD	dc	"CSD:"
 TEXT_10		dc	"1.0"
 TEXT_20		dc	"2.0"
@@ -2602,6 +2619,26 @@ T_10	defb	0
 ;TISKNE CISLO TYPU INTEGER
 ;STAR-RUTINA TISKU 1 ZNAKU NA
 ;POZICI BC (0,0)
+;Tisk kapacity v GB bez zbytecnych uvodnich nul.
+;HL = hodnota 0..2048, BC = pozice.
+;Do 99 tiskne 2 cifry, 100..999 3 cifry, od 1000 4 cifry.
+CAPACITY_NUMBER
+	ld	a,h
+	or	a
+	jr	nz,CAPACITY_OVER255
+	ld	a,l
+	cp	100
+	jp	c,NUMBER1
+	jp	NUMBER2
+CAPACITY_OVER255
+	push	hl
+	ld	de,1000
+	or	a
+	sbc	hl,de
+	pop	hl
+	jp	c,NUMBER2
+	jp	NUMBER3
+
 NUMBER4	ld	de,-10000
 	call	NUM_JED
 NUMBER3	ld	de,-1000
