@@ -2420,7 +2420,7 @@ valid_partition
 autoinstall_yes_no
 	ld	a,(@autoinstall)
 	or	a
-ayn	call	z,ANYKEY
+ayn	call	nz,ANYKEY
 	IFDEF ELEMENT
 		ld	hl,TEXT_CLR
 		ld	bc,#1602
