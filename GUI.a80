@@ -2369,9 +2369,22 @@ Endinentify
 	call	check_for_valid
 	jp	z,end_easy
 
-	ld	a,(@autoconfig)
-	or	a
-	jp	nz,manual_partition_selection
+;old
+;	ld	a,(@autoconfig)
+;	or	a
+;	jp	nz,manual_partition_selection
+
+; @autoconfig: 0=AUTO, 1=MANUAL
+; drzeny SPACE vynuti MANUAL pro tento beh
+	ld      a,#7f
+	in      a,(#fe)                ; #7FFE, bit 0 = SPACE
+	cpl
+	and     1                      ; A=1 SPACE, A=0 bez SPACE
+
+	ld      hl,@autoconfig
+	or      (hl)                   ; spoj SPACE s konfiguracnim bajtem
+	ld      (hl),a                 ; pri SPACE skutecne zmeni 0 -> 1
+	jp      nz,manual_partition_selection
 
 ;automatic_partition_selection
 	ld	a,(@partition)
