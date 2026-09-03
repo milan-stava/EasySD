@@ -132,6 +132,18 @@ nosplash
 	call	T42_TEXT	;piseme checking...	
 
 	call	SD_INIT		;initialise SD card
+	or	a
+	jr	z,SD_INIT_OK
+
+; Bez karty: vypis chybu a rovnou ukonci EasySD.
+;	Do CID/CSD ani vyberu partitions uz nepokracujeme.
+	ld	hl,TEXT_SD_NOT_FOUND
+	ld	bc,#050A
+	call	T42_TEXT
+	call	ANYKEY
+	jp	end_easy_exit
+
+SD_INIT_OK
 					;identifikace SD karty
 	call	SD_ON
 	ld	ix,BUFFER
@@ -140,54 +152,6 @@ nosplash
 	call	SD_CSD			;nacti dalsi registry SD karty
 	call	SD_OFF
 	jr	MASTERINFO
-
-;;;	ld	ix,BUFFER	;for the moment we put away
-;;;	ld	a,%00000000
-;;;	call	IDENTIFY
-;	xor	a		;testovaci
-	ld	hl,TEXT16
-	push	af
-	jr	z,TISKSTATUS1	;OK
-	ld	hl,TEXT11
-	cp	255
-	jp	z,TISKSTATUS1
-	ld	hl,TEXT14
-	cp	6
-	jp	z,TISKSTATUS1
-	ld	hl,TEXT13
-	cp	3
-	jp	z,TISKSTATUS1
-	ld	hl,TEXT12
-	dec	a
-	jp	z,TISKSTATUS1
-	ld	hl,TEXT15
-
-;	jp	LER1
-
-TISKSTATUS1
-	ld	bc,#050F
-	call	T42_TEXT
-
-	pop	af
-	jr	z,MASTERINFO
-
-	ld	h,0
-	ld	l,a
-	ld	bc,#0526
-	call	NUMBER2
-;pokud je General setting nastavena autoconfigurace, tak pri neuspesnem detekovani zarizeni se do CHS ulozi nuly a HDD pak nasledne nebude nainstalovan
-	ld	a,(@autoconfig)
-	or	a
-	jr	z,nemenCHSm1
-	xor	a
-	ld	b,4
-	ld	hl,VDT
-nulydoCHSm
-	ld	(hl),a
-	inc	hl
-	djnz	nulydoCHSm
-nemenCHSm1
-;;	jp	Slaveinentify		;vyresit, proc to tu je?
 
 MASTERINFO
 	ld	hl,TEXT4	;nejdriv vypise texty
@@ -2506,6 +2470,7 @@ find_valid:
 	add	hl,de
 	inc	a
         djnz    find_valid
+	xor	a			; zadna platna partition -> Z
 	ret
 
 end_easy
@@ -2513,6 +2478,7 @@ end_easy
 	ld	bc,#1602
 	call	T42_TEXT
 
+end_easy_exit
 	IFDEF ELEMENT		;stisk EDIT=konec, v pripade EL, ktery neni jeste inicializovany, musime udelat 128K reset
 	xor	a
 	jp	#3978
@@ -2654,6 +2620,7 @@ TEXT6	dc	16,70,"Manufacturing date:"
 TEXT7	dc	16,70,"ReadBlLen:       SDcard size: "
 ;TEXT8	dc	16,70,"SLAVE DISK:"
 TEXT8	dc	16,66,"checking..."
+TEXT_SD_NOT_FOUND	dc	16,66,"Not Found  "	; 11 znaku = prepise cele "checking..."
 TEXT9	db	"Total LBA 48 bi"
 	dc	"t sec.:"
 TEXT10	db	"Start cloning ("
