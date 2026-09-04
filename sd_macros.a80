@@ -66,8 +66,8 @@ CMD_55		equ 0x40+55	; APP_CMD
 CMD_58		equ 0x40+58	; READ_OCR
 
 BLOCKSIZE	equ	512		; SD/MMC block size (bytes)
-WAIT_DATA_TIMEOUT	equ	2048
-WAIT_CMD_TIMEOUT	equ	2048
+WAIT_DATA_TIMEOUT	equ	0
+WAIT_CMD_TIMEOUT	equ	0
 ; R1 response
 ; D0 = Idle state / init not completed yet
 ; D1 = Erase Reset
@@ -104,7 +104,8 @@ sd_cs
     db SD_0,SD_1
 */
 SD_INIT
-    ld b,10
+;    ld b,10		
+	ld b,12		;pri 20MHz byla hodnota 10 malo, pri vysunute karte je to 11 sec timeout
 sd_init_loop
     push bc
     call SD_POWER_ON
