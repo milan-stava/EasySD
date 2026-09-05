@@ -2,7 +2,7 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 rem ================================================================
-rem EasySD FAT32 preparation helper - v3
+rem EasySD / EasyCF FAT32 preparation helper
 rem
 rem Purpose:
 rem   Prepare a freshly formatted FAT32 BSDOS partition BEFORE
@@ -50,7 +50,7 @@ for /f "tokens=5,*" %%A in ('vol %TARGET% 2^>nul ^| findstr /i /c:"Volume in dri
 if not defined VOL_LABEL set "VOL_LABEL=(unknown)"
 
 echo ==========================================
-echo   EasySD FAT32 preparation - v3
+echo   EasySD / EasyCF FAT32 preparation
 echo ==========================================
 echo.
 echo Target drive : %TARGET%
@@ -58,7 +58,7 @@ echo Volume label : !VOL_LABEL!
 echo.
 echo This helper prepares a FAT32 partition BEFORE MBD/MBH images
 echo are copied to it. The MBD/MBH data area must remain physically
-echo contiguous on the card.
+echo contiguous on the medium.
 echo.
 echo IMPORTANT:
 echo - Use this on a freshly formatted FAT32 BSDOS partition.
@@ -87,10 +87,10 @@ echo   IndexerVolumeGuid
 echo   WPSettings.dat
 echo.
 echo Windows normally creates these files after formatting the volume
-echo or after the card is inserted. This BAT does NOT try to create them.
+echo or after the medium is inserted. This BAT does NOT try to create them.
 echo.
 echo If they are missing and Windows is not currently creating them,
-echo safely eject and reinsert the card, then run this BAT again.
+echo safely eject and reinsert the medium, then run this BAT again.
 echo.
 
 call :check_metadata
@@ -195,7 +195,7 @@ echo Windows metadata was created BEFORE the image area and the FAT32
 echo root directory has been pre-allocated for %TEMP_COUNT% entries.
 echo.
 echo NOW copy your MBD/MBH images to %TARGET%\
-echo EasySD will find the physically first MBD/MBH image automatically.
+echo EasySD / EasyCF will find the physically first MBD/MBH image automatically.
 echo.
 echo IMPORTANT: Do not format the partition again after this step.
 echo.
@@ -220,7 +220,7 @@ echo No root-directory preparation was performed.
 echo DO NOT copy MBD/MBH files yet.
 echo.
 echo If the metadata files are missing:
-echo   safely eject the SD card,
+echo   safely eject the medium,
 echo   insert it again,
 echo   then run this BAT again.
 echo.
@@ -235,7 +235,7 @@ echo DO NOT copy MBD/MBH files yet.
 echo.
 echo Recommended procedure:
 echo   1. Close this window.
-echo   2. Safely eject the SD card.
+echo   2. Safely eject the medium.
 echo   3. Insert it again.
 echo   4. Open the BSDOS drive once in Explorer/Total Commander.
 echo   5. Wait a few seconds.

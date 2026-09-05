@@ -56,7 +56,7 @@ if command -v lsblk >/dev/null 2>&1 && [[ "$SOURCE" == /dev/* ]]; then
 fi
 
 echo "=========================================="
-echo "  EasySD FAT32 preparation - Linux"
+echo "  EasySD / EasyCF FAT32 preparation - Linux"
 echo "=========================================="
 echo
 echo "Target mount : $ROOT_REAL"
