@@ -352,7 +352,8 @@ rp2	jp #358	;patch umistime hned za rutiny nmi menu do volneho mista
 
 ;definice znaku zamek
 zamek	defb 0,60,36,126,110,102,126,0		;end 1.18
-
+new_cat_text
+        defb    "S0:P0 BSD 308"
 
 
 
@@ -428,6 +429,24 @@ dmano
 		ld	de,HDD_MAIN_START
 		ld	bc,112
 		ldir
+
+;pridavame do katalogu disku text S0 a cislo partisny P1-P4
+; BS-DOS 308 ** BUSY SOFT'96
+; BS-DOS 308b * BUSY SOFT'19
+; S0:P4 BSD 308 BUSY SOFT'96
+; S0:P4 BSD 308bBUSY SOFT'19
+
+        ld      a,(#DCE)               ; mezera nebo 'b'
+        ld      (#DD1),a               ; za nove "308"
+
+        ld      hl,new_cat_text
+        ld      de,#DC4
+        ld      bc,13
+        ldir
+
+        ld      a,(@partition)
+        add     a,'0'
+        ld      (#DC8),a               ; P1-P4
 
 		ld	a,98
 		out	(23),a
