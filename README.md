@@ -10,7 +10,7 @@ EasySD automatically detects supported FAT16/FAT32 partitions, locates MBD/MBH d
 
 
 
-!\[EasySD 1.0](images/01-easysd-overview.png)
+![EasySD 1.0](images/01-easysd-overview.png)
 
 
 
