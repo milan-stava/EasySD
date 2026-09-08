@@ -62,6 +62,8 @@ The current release is available in the GitHub Releases section.
 
 
 
+
+
 Release package contents:
 
 
@@ -98,6 +100,20 @@ Version 1.0 has been tested on real MB03+ and eLeMeNt ZX hardware, including BSD
 
 See `EasySD\_documentation.txt` for the complete user and technical manual.
 
+
+### Complete package
+
+[**Download EasySD v1.0 ZIP**](https://github.com/milan-stava/EasySD/releases/download/v1.0/EasySD_v1.0.zip)
+
+### Individual files
+
+- [EasySD_MB_BIN.tap](https://github.com/milan-stava/EasySD/releases/download/v1.0/EasySD_MB_BIN.tap) – EasySD for MB03+
+- [EasySD_EL.tap](https://github.com/milan-stava/EasySD/releases/download/v1.0/EasySD_EL.tap) – EasySD for standalone eLeMeNt ZX
+- [EasySD_documentation.txt](https://github.com/milan-stava/EasySD/releases/download/v1.0/EasySD_documentation.txt) – complete manual
+- [PREPARE_EASY_FAT32.bat](https://github.com/milan-stava/EasySD/releases/download/v1.0/PREPARE_EASY_FAT32.bat) – Windows FAT32 preparation tool
+- [PREPARE_EASY_FAT32.sh](https://github.com/milan-stava/EasySD/releases/download/v1.0/PREPARE_EASY_FAT32.sh) – Linux FAT32 preparation tool
+
+See the [EasySD 1.0 release](https://github.com/milan-stava/EasySD/releases/tag/v1.0) for release notes.
 
 
 \## Related project
