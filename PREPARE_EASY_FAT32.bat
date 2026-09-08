@@ -16,6 +16,8 @@ rem   - shows a live countdown while waiting
 rem   - any key aborts the wait safely
 rem   - pre-allocates 2500 FAT32 root-directory entries
 rem     (suitable also for long VFAT/LFN image filenames)
+rem   - if metadata already exists at startup, preparation continues
+rem     immediately without the extra 3-second settle delay
 rem ================================================================
 
 set "WAIT_MAX=120"
@@ -94,7 +96,7 @@ echo safely eject and reinsert the medium, then run this BAT again.
 echo.
 
 call :check_metadata
-if "!META_READY!"=="1" goto :metadata_ready
+if "!META_READY!"=="1" goto :metadata_already_ready
 
 rem PowerShell is used only for the non-blocking keyboard check/countdown.
 rem It also checks whether both metadata files have appeared.
@@ -119,11 +121,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "}"
 
 set "WAIT_RESULT=%ERRORLEVEL%"
-if "%WAIT_RESULT%"=="0" goto :metadata_ready
+if "%WAIT_RESULT%"=="0" goto :metadata_ready_after_wait
 if "%WAIT_RESULT%"=="7" goto :metadata_aborted
 goto :metadata_timeout
 
-:metadata_ready
+:metadata_already_ready
+echo Windows metadata is ready.
+echo   IndexerVolumeGuid : !IDX_SIZE! bytes
+echo   WPSettings.dat    : !WPS_SIZE! bytes
+echo.
+goto :prepare_root
+
+:metadata_ready_after_wait
 call :check_metadata
 if not "!META_READY!"=="1" goto :metadata_timeout
 
@@ -144,6 +153,7 @@ if not "!META_READY!"=="1" (
     goto :exit_error
 )
 
+:prepare_root
 echo Step 2/2: Pre-allocating FAT32 root-directory space...
 echo.
 echo Creating %TEMP_COUNT% temporary 8.3 directory entries...
