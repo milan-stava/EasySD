@@ -1,57 +1,1637 @@
-EasySD - technical documentation
-===============================
+EasySD & EasyCF
+================
 
-1. FAT32 - detection of the first MBD/MBH image
-------------------------------------------------
+Uživatelský a technický manuál
 
-EasySD does not determine the first disk image from the order of directory
-entries in the FAT32 root directory.
+Pracovní verze pro vydání 1.0
+Aktualizováno 8. 9. 2026
 
-The complete FAT32 root directory cluster chain is searched. For every
-MBD/MBH file its starting cluster is obtained. The file with the lowest
-starting cluster is considered the physically first image and its absolute
-LBA is calculated.
 
-This is necessary because the order of FAT32 directory entries does not
-necessarily correspond to the physical order of files in the data area.
+PODĚKOVÁNÍ
+==========
 
-Therefore image filenames do not determine disk order. The user may use
-descriptive filenames such as:
+Hlavní vývoj EasySD a EasyCF mám na starosti já (Hood), ale za vznikem
+a dokončením projektu stojí také pomoc dalších členů MB03+ teamu:
 
-    ASSEMBLY.MBD
-    MY_CODE.MBD
-    GAMES_A.MBD
-    GAMES_B.MBD
+- JohnyX – bez jeho práce by EasySD nemohlo vzniknout v dnešní podobě.
+  Poskytl své rutiny pro práci s SD kartou, čímž vývoj výrazně usnadnil
+  a urychlil.
 
-The important condition is that MBD/MBH images are physically stored
-contiguously. EasySD calculates subsequent BSDOS disks by a fixed offset
-from the physically first image.
+- Busy – za rady a pomoc s breakpointy, bez kterých by bylo podstatně
+  obtížnější odhalit počáteční chyby při vzniku patche.
 
-TEST CASE - 2026-08-25
+- LMN a SCJoe – za rady a konzultace týkající se eLeMeNtu ZX a jeho
+  paměťových módů.
+
+- Lanex – za jeho skvělý emulátor, který zásadně usnadnil vývoj,
+  ladění a testování.
+
+
+OBSAH
+=====
+
+ČÁST I – SEZNÁMENÍ A RYCHLÉ POUŽITÍ
+  1. Co jsou EasySD a EasyCF
+  2. Instalace a spuštění
+  3. Vztah k původnímu EasyHdd
+  4. EasySD nebo EasyCF?
+  5. Co oba programy umějí
+  6. Nejdůležitější pravidlo – souvislá oblast MBD/MBH
+  7. Rychlá příprava média
+  8. AUTO, MANUAL a SPACE override
+  9. Konfigurace programu
+  10. Stručné shrnutí
+
+ČÁST II – PODROBNÝ POPIS
+  11. MBD a MBH image
+  12. Fyzické uložení a výpočet BSDOS disků
+  13. Partition a podporované filesystémy
+  14. FAT16
+  15. FAT32
+  16. Příprava FAT32 ve Windows a Linuxu
+  17. Co přípravné skripty dělají
+  18. Doporučení pro názvy souborů
+  19. Podrobná konfigurace
+  20. EasySD – specifika SD karet
+  21. EasyCF – specifika CompactFlash
+  22. Použití, chybové stavy a ukončení programu
+
+PŘÍLOHA A – TESTOVÁNÍ A OVĚŘENÍ
+
+
+======================================================================
+ČÁST I – SEZNÁMENÍ A RYCHLÉ POUŽITÍ
+======================================================================
+
+
+1. Co jsou EasySD a EasyCF
+--------------------------
+
+EasySD a EasyCF jsou nástroje pro BSDOS určené k automatickému nalezení
+a zpřístupnění diskových image MBD/MBH uložených na paměťovém médiu.
+
+EasySD pracuje s SD kartami.
+EasyCF pracuje s CompactFlash kartami prostřednictvím ATA/IDE rozhraní.
+
+Oba programy jsou následovníci svého předchůdce EasyHDD a rozšiřují jeho možnosti. Vycházejí ze stejné základní myšlenky: uživatel nemusí znát
+fyzické umístění prvního MBD/MBH image ani ručně počítat sektory. Program
+si potřebné údaje zjistí přímo z média, vypočítá fyzický začátek oblasti
+BSDOS disků a podle něj nastaví BSDOS.
+
+EasySD je určeno pro MB03+ i eLeMeNt ZX.
+EasyCF navazuje na původní CF řešení EasyHdd a je určeno pouze pro MB03+.
+
+
+2. Instalace a spuštění
+-----------------------
+
+EasyCF na MB03+
+~~~~~~~~~~~~~~~
+
+EasyCF navazuje na původní EasyHdd a je určeno pro MB03+. MB03+ má jeden
+CompactFlash slot a EasyCF používá právě tuto CF kartu.
+
+Program lze zavést dvěma způsoby:
+
+- spustit EasyCF z BASICu jako běžný binární program,
+- nebo jej nahrát do flash pomocí Reflasheru na pozici 3 – EasyHdd.
+
+Pro použití v Reflasheru je potřeba binární soubor EasyCF přejmenovat na
+EasyHDD. Potom lze při startu počítače klávesou 1 zavést BSDOS a současně
+spustit EasyCF.
+
+Pro běžné použití z flash je praktické nastavit EasyCF do AUTO režimu, aby
+nebylo nutné při každém startu vybírat partition ručně.
+
+
+EasySD na MB03+
+~~~~~~~~~~~~~~~
+
+EasySD lze na MB03+ spustit obdobně: buď z BASICu, nebo jej zavést pomocí
+Reflasheru.
+
+MB03+ má dva sloty pro SD kartu. EasySD ve verzi 1.0 používá slot SD1.
+Při pohledu uživatele sedícího před počítačem je SD1 levý slot.
+
+
+EasySD na eLeMeNt ZX bez MB03+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Součástí balíku je také verze EasySD pro samostatný eLeMeNt ZX bez MB03+.
+
+Pro její zavedení je vhodné použít ESXDOS. Na SD kartě může být například:
+
+- první partition pro ESXDOS,
+- další partition (P2, P3 nebo P4) FAT16 nebo FAT32 pro BSDOS.
+
+Na ESXDOS partition uložte soubor:
+
+EasySD_EL.tap
+
+Po jeho spuštění se EasySD zavede do paměti a BSDOS lze používat i na
+samostatném eLeMeNtu ZX bez MB03+.
+
+Podrobný postup přípravy FAT16/FAT32 partition je uveden dále v manuálu.
+
+
+3. Vztah k původnímu EasyHdd
+----------------------------
+
+Původní EasyHdd byl program pro práci s diskovými imagi MBD a MBH na
+CompactFlash kartách. Prvotním autorem HDD driveru byl Dron a EasyHdd
+napsal Jan Kučera/LMN, autor MB03+ a eLeMeNtu ZX.
+
+Princip EasyHdd spočíval v uložení série MBD/MBH image pro BSDOS do
+souvislé oblasti média. Instalační program zjistil první datový sektor,
+napatchoval BSDOS a vytvořil driver. Od té chvíle bylo možné používat
+MBD image jako virtuální disky BSDOSu.
+
+EasyHdd však měl několik omezení:
+
+- podporoval pouze FAT16,
+- FAT16 musel být jako superfloppy nebo v první partition,
+- BSDOS a Esxdos tak často sdílely jednu FAT16 partition,
+- ve starších variantách byly navíc vyhrazeny pozice disků 1 a 2 pro floppy mechaniky.
+
+EasySD a EasyCF tuto myšlenku zachovávají, ale rozšiřují ji především o:
+
+- podporu FAT16 i FAT32,
+- práci s více partition,
+- automatický i manuální výběr partition,
+- disky BSDOS 1–255,
+- možnost jednorázově vynutit MANUAL režim klávesou SPACE,
+- přehlednější oddělení souborů/image BSDOS od ostatních systémů na médiu.
+
+
+4. EasySD nebo EasyCF?
 ----------------------
 
-Test FAT32 partition:
-    cluster size:        4096 bytes (8 sectors)
-    root cluster chain:  2 -> 7 -> 8
-    first physical MBD:  001_NMI165.MBD
-    start cluster:       9
-    absolute LBA:        29896760
+Použijte EasySD, pokud jsou MBD/MBH image uloženy na SD kartě- typicky na MB03+ nebo eLeMeNtuZX.
 
-The old EasySD algorithm searched only the first 8 directory entries and
-incorrectly selected 076.MBD as the first image.
+Použijte EasyCF, pokud jsou MBD/MBH image uloženy na CompactFlash kartě
+a počítač používá CF/ATA rozhraní- pouze na MB03+.
 
-The new algorithm searched the FAT32 root cluster chain and selected
-001_NMI165.MBD because it had the lowest starting cluster.
+Z pohledu BSDOSu a organizace MBD/MBH image jsou si oba programy velmi
+podobné. Liší se především nízkoúrovňovým přístupem k médiu:
 
-All 255 BSDOS disks were subsequently tested successfully.
+EasySD  -> SD driver
+EasyCF  -> ATA/IDE driver
 
-IMPLEMENTATION NOTE
+
+5. Co oba programy umějí
+------------------------
+
+Základní společné vlastnosti:
+
+- práce s BSDOS image MBD a MBH,
+- disky BSDOS 1–255,
+- FAT16 a FAT32,
+- rozpoznání až čtyř primárních partition,
+- automatický výběr použitelné partition,
+- manuální výběr partition,
+- jednorázové vynucení MANUAL režimu podržením SPACE při startu,
+- výpočet absolutního LBA prvního MBD/MBH,
+- rozpoznání nepoužitelných nebo nepodporovaných partition,
+- možnost write protect pro každý BSDOS disk zvlášť.
+
+EasySD navíc obsahuje vlastní inicializaci a obsluhu SD karty a umí
+oznámit stav „Not Found“, pokud SD karta není dostupná.
+
+
+6. Nejdůležitější pravidlo – souvislá oblast MBD/MBH
+----------------------------------------------------
+
+Toto je nejdůležitější pravidlo celého systému.
+
+MBD/MBH image musí být na médiu fyzicky uloženy za sebou bez mezer
+způsobených jinými soubory nebo adresářovými clustery.
+
+Nestačí, aby byl každý MBD soubor sám o sobě nefragmentovaný.
+
+Správně:
+
+001.MBD   clustery 100–227
+002.MBD   clustery 228–355
+003.MBD   clustery 356–483
+
+Nesprávně:
+
+001.MBD   clustery 100–227
+jiný soubor        cluster 228
+002.MBD   clustery 229–356
+
+V takovém případě by BSDOS od druhého disku četl data z nesprávného
+místa.
+
+
+7. Rychlá příprava média
+------------------------
+
+(podrobný návod viz druhá část)
+
+FAT16
+~~~~~
+
+1. vytvořte nebo naformátujte cílovou partition jako FAT16,
+2. nakopírujte MBD/MBH image do root directory,
+3. vložte médium do zařízení,
+4. spusťte EasySD nebo EasyCF.
+
+FAT32
+~~~~~
+
+U FAT32 doporučujeme před kopírováním MBD/MBH připravit root directory,
+aby se během kopírování mezi jednotlivé image nevložil nový cluster
+adresáře.
+
+Windows:
+
+FORMAT FAT32
+↓
+spustit PREPARE_EASY_FAT32.bat
+↓
+počkat na úspěšné dokončení
+↓
+zkopírovat MBD/MBH
+↓
+spustit EasySD / EasyCF
+
+Linux:
+
+FORMAT FAT32
+↓
+spustit PREPARE_EASY_FAT32.sh
+↓
+počkat na úspěšné dokončení
+↓
+zkopírovat MBD/MBH
+↓
+spustit EasySD / EasyCF
+
+Pokud místo řady samostatných MBD souborů použijete jediný MBH soubor
+obsahující celou sadu BSDOS disků, není kvůli předrezervování FAT32
+root directory nutné spouštět PREPARE_EASY_FAT32.bat / .sh. Stále však
+platí základní podmínka: celý MBH soubor musí být na médiu fyzicky souvislý.
+
+
+8. AUTO, MANUAL a SPACE override
+--------------------------------
+
+AUTO
+~~~~
+
+V automatickém režimu program použije nastavenou preferovanou partition (viz promenna "partition" v configu, viz níže).
+Pokud není použitelná pro BSDOS, vyhledá první použitelnou partition.
+
+MANUAL
+~~~~~~
+
+V manuálním režimu si uživatel vybere partition sám.
+
+V manuálním režimu lze zobrazit i kartu, na které není žádná použitelná
+BSDOS partition. Program tedy nevyskočí jen proto, že na médiu nebyl
+nalezen MBD/MBH image.
+
+SPACE override
+~~~~~~~~~~~~~~
+
+Je-li program nastaven do AUTO režimu, lze při jeho spuštění podržet
+SPACE. Pro toto jedno spuštění se tím vynutí MANUAL režim.
+
+Trvalé nastavení programu se tím nemění.
+
+
+9. Konfigurace programu
+-----------------------
+
+Pro verzi 1.0 je konfigurační blok sjednocen tak, aby začínal na stejné
+adrese u EasySD pro MB03+, EasySD pro eLeMeNt i u EasyCF.
+
+Program se nahrává od adresy:
+
+#8000 (32768)
+
+Konfigurační blok začíná na:
+
+#8006 (32774)
+
+a zabírá osm bajtů #8006 až #800D.
+
+Adresa   Offset   Název          Význam
+-----------------------------------------------------------------------
+
+#8006      0      autoinstall    0 = pokračovat bez čekání
+                                 1 = po instalaci čekat na klávesu
+
+#8007      1      autoconfig     0 = automatický výběr partition (AUTO režim)
+                                 1 = manuální výběr partition
+
+#8008      2      partition      Preferovaná partition pro AUTO režim.
+
+                                 SD1:
+                                 1 = P1
+                                 2 = P2
+                                 3 = P3
+                                 4 = P4
+
+                                 Hodnoty 5–8 odpovídají P1–P4
+                                 zařízení SD2.
+
+                                 Pokud zvolená partition není použitelná
+                                 pro BSDOS, program hledá první použitelnou.
+
+#8009      3      showsplash     0 = nezobrazovat úvodní obrazovku
+                                 1 = zobrazovat
+
+#800A      4      playnoise      0 = zvuk vypnut
+                                 1 = zvuk zapnut
+
+#800B      5      showgui        0 = GUI nezobrazovat
+                                 1 = GUI zobrazovat
+
+#800C      6      noverify       0 = standardní ověřování zápisu
+                                 1 = ověřování zápisu vypnuto
+
+#800D      7      dmar3          Instalace opravy DMA registru R3.
+                                 U EasySD se DMA pro SD nepoužívá;
+                                 výchozí hodnota je proto 0.
+
+autoinstall a autoconfig jsou dvě nezávislé volby.
+
+Příklad:
+
+autoconfig = 0
+autoinstall = 0
+
+znamená automatický výběr partition a pokračování bez čekání na klávesu.
+
+Naopak:
+
+autoconfig = 0
+autoinstall = 1
+
+znamená automatický výběr partition, ale po instalaci program počká,
+aby si uživatel mohl přečíst výsledek.
+
+
+10. Stručné shrnutí
 -------------------
 
-When incrementing a 32-bit LBA implemented as two 16-bit words on Z80,
-INC HL must not be followed by a conditional jump expecting flags to
-indicate 16-bit overflow. INC HL does not modify the Z80 flags.
+Pro běžné použití stačí pamatovat na několik pravidel:
 
-This caused an important bug during development: the first sector of a
-root cluster was read correctly, but subsequent sectors could be read
-from an incorrect 32-bit LBA.
+1. použijte FAT16 nebo FAT32,
+2. MBD/MBH soubory kopírujte jako jednu fyzicky souvislou oblast,
+3. u FAT32 nejprve připravte root directory,
+4. program sám najde začátek prvního MBD/MBH,
+5. v AUTO režimu zvolí partition sám,
+6. SPACE při startu jednorázově vyvolá MANUAL režim,
+7. BSDOS disky jsou číslovány 1–255.
+
+
+======================================================================
+ČÁST II – PODROBNÝ POPIS
+======================================================================
+
+
+11. MBD a MBH image
+-------------------
+
+Program hledá v root directory podporované FAT partition soubory:
+
+*.MBD
+*.MBH
+
+MBD je standardní diskový image BSDOSu. Pro EasySD a EasyCF má jeden MBD
+image přesnou velikost:
+
+2 097 152 B
+= 2 MiB
+
+MBH je soubor tvořený několika MBD image uloženými bezprostředně za sebou.
+Jeden MBH tedy může obsahovat více po sobě jdoucích BSDOS disků.
+
+Místo řady samostatných souborů 001.MBD, 002.MBD, 003.MBD atd. lze tedy
+použít jediný MBH soubor, ve kterém jsou jednotlivé 2MiB BSDOS disky
+spojeny za sebou.
+
+To má praktickou výhodu zejména na FAT32. Pokud je celá sada disků uložena
+v jednom MBH souboru, nevznikají mezi jednotlivými BSDOS disky další
+adresářové položky a nehrozí vložení nového clusteru root directory mezi
+několik samostatně kopírovaných MBD souborů. Přípravný BAT/SH proto kvůli
+předrezervování root directory není v tomto případě nutný.
+
+Podmínka fyzické souvislosti tím ale nezaniká: samotný MBH soubor musí být
+na médiu uložen souvisle.
+
+MBD/MBH soubory lze ve Windows pohodlně vytvářet a spravovat například
+v Total Commanderu pomocí příslušného MBD/MBH pluginu.
+
+Název souboru nemusí určovat číslo BSDOS disku.
+
+Příklady:
+
+001.MBD
+002.MBD
+ASSEMBLY.MBD
+GAMES.MBD
+UTILS.MBD
+
+Disk 1 není určen podle názvu souboru.
+
+Rozhodující je fyzicky první MBD/MBH image na médiu.
+
+Pořadí souborů zobrazené ve Windows nemusí odpovídat jejich fyzickému
+pořadí na médiu, což je důležité zejména u FAT32.
+
+
+12. Fyzické uložení a výpočet BSDOS disků
+-----------------------------------------
+
+Jeden BSDOS disk zabírá:
+
+2 097 152 B
+= 2 MiB
+= 4096 sektorů po 512 B
+
+Pro disk číslo N se používá:
+
+LBA = první_MBD_LBA + (N - 1) × 4096
+
+Program tedy potřebuje přesně zjistit pouze začátek fyzicky prvního
+MBD/MBH image.
+
+Další disky se už adresují lineárně.
+
+Z toho přímo plyne požadavek na souvislou oblast MBD/MBH.
+
+Maximální počet BSDOS disků je 255.
+
+255 × 2 MiB = přibližně 510 MiB datového prostoru.
+
+Pro plnou sadu disků je proto vhodné vyhradit alespoň 510 MiB plus
+určitou rezervu.
+
+
+13. Partition a podporované filesystémy
+---------------------------------------
+
+Podporované filesystémy:
+
+FAT16
+FAT32
+
+Nepodporované jsou například:
+
+NTFS
+exFAT
+ext2/ext3/ext4
+
+Nepodporovaná partition není sama o sobě chyba. Program ji označí jako
+nepoužitelnou pro BSDOS a pokračuje další partition.
+
+Příklad média:
+
+P1   exFAT     data pro PC
+P2   FAT32     BSDOS
+P3   Linux
+P4   prázdná
+
+Pro BSDOS bude použitelná P2.
+
+EasySD umí pracovat také s médiem typu superfloppy, tedy s FAT16/FAT32
+bez MBR, jehož boot sektor začíná přímo na LBA 0.
+
+
+14. FAT16
+---------
+
+FAT16 je z pohledu přípravy nejjednodušší varianta.
+
+Root directory FAT16 má pevně vyhrazené místo. Nehrozí tedy, že by se
+při přidávání dalších položek root directory vložil nový adresářový
+cluster mezi MBD/MBH image.
+
+Základní postup:
+
+1. vytvořit nebo naformátovat partition jako FAT16,
+2. nakopírovat MBD/MBH image,
+3. spustit EasySD nebo EasyCF.
+
+I u FAT16 stále platí, že celá oblast MBD/MBH musí být fyzicky souvislá.
+
+
+15. FAT32
+---------
+
+FAT32 je z hlediska přípravy média složitější.
+
+Root directory FAT32 není pevná oblast. Je tvořena clusterovým řetězcem
+a podle potřeby se může rozšiřovat o další clustery.
+
+Pokud by nový cluster root directory vznikl právě během kopírování
+MBD/MBH souborů, mohl by být fyzicky vložen mezi dva image a porušit
+jejich návaznost.
+
+Proto je vhodné root directory předem připravit tak, aby mělo dostatek
+adresářových položek ještě před kopírováním MBD/MBH.
+
+
+16. Příprava FAT32 ve Windows a Linuxu
+--------------------------------------
+
+Pro EasySD i EasyCF jsou určeny společné pomocné skripty:
+
+Windows:
+PREPARE_EASY_FAT32.bat
+
+Linux:
+PREPARE_EASY_FAT32.sh
+
+Jejich hlavním účelem je připravit FAT32 root directory ještě před
+kopírováním MBD/MBH.
+
+U FAT32 je správné pořadí přípravy velmi důležité. Doporučený postup je:
+
+naformátovat FAT32
+→ spustit přípravný skript z root directory
+→ počkat na úspěšné dokončení
+→ přípravný skript lze odstranit
+→ teprve potom nakopírovat MBD/MBH jako jednu souvislou dávku.
+
+Před dokončením přípravy na partition nekopírujte MBD/MBH ani jiné
+soubory, které by mohly narušit fyzickou souvislost oblasti image.
+
+Výjimka – jediný MBH soubor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pokud uživatel místo série samostatných MBD souborů použije jediný MBH
+obsahující všechny požadované BSDOS disky, přípravný BAT/SH kvůli
+předrezervování root directory není nutný. Mezi jednotlivými BSDOS disky
+uvnitř MBH totiž nevznikají další položky FAT adresáře.
+
+I v tomto případě ale musí být celý MBH fyzicky nefragmentovaný a souvislý.
+
+
+Příprava ve Windows
+~~~~~~~~~~~~~~~~~~~
+
+1. čerstvě naformátujte cílovou partition jako FAT32,
+2. připojte ji ve Windows,
+3. přímo do root directory této partition zkopírujte
+   PREPARE_EASY_FAT32.bat,
+4. BAT spusťte přímo z této partition,
+5. počkejte na oznámení o úspěšném dokončení,
+6. po úspěšné přípravě lze BAT z partition odstranit,
+7. teprve potom kopírujte MBD/MBH.
+
+BAT musí být uložen přímo v root directory cílové FAT32 partition a musí
+být spuštěn před kopírováním MBD/MBH.
+
+
+Příprava v Linuxu
+~~~~~~~~~~~~~~~~~
+
+1. vytvořte nebo naformátujte cílovou partition jako FAT32 a připojte ji,
+2. přímo do root directory připojené cílové partition zkopírujte
+   PREPARE_EASY_FAT32.sh,
+3. skript spusťte z tohoto umístění,
+4. počkejte na úspěšné dokončení,
+5. po úspěšné přípravě lze SH skript z partition odstranit,
+6. teprve potom nakopírujte MBD/MBH.
+
+Také linuxový skript musí být uložen přímo v root directory připojené
+cílové FAT32 partition.
+
+17. Co přípravné skripty dělají
+-------------------------------
+
+Windows – PREPARE_EASY_FAT32.bat
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+BAT nejprve ověří, že:
+
+- běží z root directory cílové partition,
+- na partition ještě nejsou MBD/MBH image.
+
+Dále zkontroluje, že Windows již vytvořil vlastní pomocná data v:
+
+System Volume Information
+
+zejména soubory:
+
+IndexerVolumeGuid
+WPSettings.dat
+
+To je důležité například v případě, kdy byla FAT32 partition vytvořena
+v Linuxu a ve Windows je připojena poprvé.
+
+Windows může WPSettings.dat vytvořit dodatečně. Pokud by se tak stalo
+až během kopírování MBD/MBH, jeho cluster by mohl skončit mezi dvěma
+image a narušit jejich fyzickou souvislost.
+
+Pokud již soubory IndexerVolumeGuid a WPSettings.dat existují a mají
+nenulovou velikost, BAT pokračuje v přípravě ihned. Pokud ještě vytvořeny
+nejsou, čeká na jejich vytvoření maximálně 120 sekund. Jakmile se objeví,
+ponechá Windows krátkou přibližně třísekundovou dobu na dokončení zápisu
+a jejich stav znovu ověří.
+
+Toto chování bylo prakticky ověřeno jak na médiu s již existujícími
+metadata Windows, tak na čerstvě připojené FAT32 partition.
+
+BAT potom předem připraví prostor v FAT32 root directory pomocí
+dočasných adresářových položek.
+
+Současná varianta vytvoří 2500 dočasných položek s krátkými názvy 8.3,
+čímž root directory předem rozšíří, a po dokončení je opět odstraní.
+Rezerva 2500 položek je určena i pro použití dlouhých VFAT/LFN názvů
+u plné sady až 255 MBD/MBH image.
+
+
+Linux – PREPARE_EASY_FAT32.sh
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Linuxový skript má stejný hlavní účel: připravit FAT32 root directory
+ještě před kopírováním MBD/MBH tak, aby se jeho další clustery
+nepřidělovaly mezi image.
+
+Stejně jako Windows verze vytvoří 2500 dočasných položek 8.3 a po
+rozšíření root directory je odstraní.
+
+Linux nemusí čekat na windowsí System Volume Information ani
+WPSettings.dat.
+
+Po úspěšném dokončení lze přípravný BAT/SH z partition odstranit ještě
+před kopírováním MBD/MBH.
+
+18. Doporučení pro názvy souborů
+--------------------------------
+
+FAT16
+~~~~~
+
+U FAT16 používejte pro MBD/MBH krátké názvy ve formátu 8.3
+(8 znaků pro jméno souboru a 3 znaky pro příponu), například:
+
+GAMES001.MBD
+UTILS001.MBD
+DEMO0001.MBH
+
+Root directory FAT16 má pevně daný maximální počet adresářových položek.
+Dlouhé VFAT/LFN názvy spotřebují pro jeden soubor několik těchto položek,
+a proto mohou počet souborů v root directory velmi výrazně omezit.
+
+Praktický test se sadou dlouhých názvů ukázal, že na FAT16 bylo možné
+uložit pouze 63 MBD souborů. EasySD navíc na takto připravené FAT16
+partition první MBD image nenalezlo.
+
+Pro FAT16 proto dlouhé VFAT/LFN názvy pro MBD/MBH nepoužívejte.
+Doporučeným a ověřeným způsobem pojmenování je formát 8.3.
+
+
+FAT32
+~~~~~
+
+U FAT32 pevné omezení root directory typické pro FAT16 odpadá. Root
+directory je součástí datové oblasti a podle potřeby se může rozšiřovat
+o další clustery.
+
+EasySD/EasyCF proto umožňuje používat i dlouhé a popisné VFAT/LFN názvy,
+například:
+
+Disk_253_nejlepsi_akcni_hry_a_strilecky_pro_BSDOS_1988_1991.mbd
+
+Přípravné skripty PREPARE_EASY_FAT32.bat a PREPARE_EASY_FAT32.sh
+předem rezervují 2500 adresářových položek, aby se root directory během
+následného kopírování MBD/MBH image nemusel rozšiřovat.
+
+Pro plnou sadu až 255 image doporučujeme udržovat délku celého názvu
+souboru přibližně do 80 znaků v průměru. Jeden dlouhý VFAT/LFN záznam
+uchová 13 znaků názvu, takže název kolem 80 znaků potřebuje přibližně
+7 LFN položek plus jednu standardní 8.3 položku. Pro 255 image je to
+přibližně 2040 položek a v předem připravených 2500 položkách tak zůstává
+rozumná rezerva.
+
+Nejde o pevný limit. Jednotlivé názvy mohou být delší. Nevhodné jsou
+především velmi dlouhé názvy blížící se maximální délce VFAT 255 znaků
+u velkého počtu image.
+
+Pořadí BSDOS disků není určováno názvem souboru. EasySD/EasyCF používá
+jejich fyzické pořadí na médiu.
+
+
+Praktická výhoda FAT32
+~~~~~~~~~~~~~~~~~~~~~~
+
+Rozdíl mezi FAT16 a FAT32 byl ověřen na reálné kartě se stejným typem
+dlouhých názvů.
+
+FAT32:
+- aktuální PREPARE_EASY_FAT32.bat s rezervou 2500 položek,
+- 255 MBD image s dlouhými VFAT/LFN názvy,
+- všech 255 BSDOS disků bylo dostupných.
+
+Stav: PASS
+
+FAT16:
+- při obdobně dlouhých názvech bylo možné uložit pouze 63 MBD souborů,
+- EasySD první MBD image na takto připravené partition nenalezlo.
+
+Pro větší kolekce diskových image a popisné názvy souborů je proto FAT32
+jednoznačně vhodnější volbou. U FAT16 používejte názvy 8.3.
+
+19. Podrobná konfigurace
+------------------------
+
+Konfigurační blok je určen pro uživatele, kteří chtějí změnit výchozí
+chování programu přímo v binárním souboru nebo při sestavení zdrojového
+kódu.
+
+Základní adresa programu:
+
+#8000
+
+Začátek konfigurace:
+
+#8006
+
+Přehled:
+
+#8006  autoinstall
+#8007  autoconfig
+#8008  partition
+#8009  showsplash
+#800A  playnoise
+#800B  showgui
+#800C  noverify
+#800D  dmar3
+
+autoinstall
+~~~~~~~~~~~
+
+0 = po instalaci pokračovat bez čekání
+1 = po instalaci čekat na klávesu
+
+Tato volba je nezávislá na tom, zda byla partition vybrána automaticky
+nebo manuálně.
+
+autoconfig
+~~~~~~~~~~
+
+0 = AUTO
+1 = MANUAL
+
+AUTO:
+program se pokusí použít partition z konfiguračního bajtu partition.
+
+Pokud tato partition není použitelná pro BSDOS, vyhledá první
+použitelnou partition.
+
+MANUAL:
+uživatel vybírá partition ručně.
+
+SPACE při startu dočasně vynutí MANUAL režim i při autoconfig=0.
+
+partition
+~~~~~~~~~
+
+Preferovaná partition v AUTO režimu.
+
+SD1:
+
+1 = P1
+2 = P2
+3 = P3
+4 = P4
+
+Hodnoty 5–8 odpovídají P1–P4 druhého SD zařízení SD2.
+
+showsplash
+~~~~~~~~~~
+
+0 = bez splash screen
+1 = zobrazit splash screen
+
+playnoise
+~~~~~~~~~
+
+0 = zvuk vypnut
+1 = zvuk zapnut
+
+showgui
+~~~~~~~
+
+0 = GUI nezobrazovat
+1 = GUI zobrazovat
+
+noverify
+~~~~~~~~
+
+0 = standardní ověřování zápisu
+1 = write verify vypnut
+
+dmar3
+~~~~~
+
+Volba instalace opravy DMA registru R3.
+
+U EasySD je pro SD přenosy DMA vypnuto a výchozí hodnota dmar3 je 0.
+U EasyCF může být výchozí hodnota odlišná podle ATA/IDE varianty.
+
+
+20. EasySD – specifika SD karet
+-------------------------------
+
+EasySD je určeno pro MB03+ a eLeMeNt ZX.
+
+EasySD 1.0 používá aktuální generaci SD rutin od JohnyX z června 2026,
+převzatou z verze zveřejněné v jeho GitHub repozitáři. Oproti původním
+rutinám použitým během vývoje tak release verze obsahuje nejnovější
+SD driver dostupný v době dokončení EasySD 1.0.
+
+Program:
+
+- inicializuje SD kartu,
+- čte identifikační registry,
+- načte MBR nebo boot sektor superfloppy,
+- rozpozná FAT16/FAT32,
+- vyhledá MBD/MBH,
+- vypočítá absolutní LBA,
+- vytvoří a nainstaluje potřebné nastavení BSDOSu.
+
+Pokud SD karta není dostupná nebo inicializace selže, EasySD zobrazí:
+
+Not Found
+
+a ukončí instalaci namísto nekonečného čekání.
+
+Podporované jsou SD karty používající CSD verze 2.0 (nad 2GB), tedy SDHC a SDXC.
+EasySD nepodporuje SDUC / CSD 3.0 ani CSD 1.0.
+
+U SDXC není rozhodující tovární filesystém celé karty. Partition určená
+pro EasySD musí být FAT16 nebo FAT32.
+
+
+Velikost clusteru FAT32
+~~~~~~~~~~~~~~~~~~~~~~~
+
+EasySD nepředpokládá pevnou velikost clusteru.
+Hodnotu BPB_SecPerClus čte z FAT boot sektoru a používá ji při výpočtu
+fyzického LBA.
+
+RAW testy byly úspěšné pro:
+
+512 B
+1 KB
+2 KB
+4 KB
+8 KB
+16 KB
+32 KB
+
+Na fyzických SD kartách byly úspěšně ověřeny také velikosti clusteru:
+
+16 KB
+32 KB
+64 KB
+
+Velikost clusteru (alokační jednotky) se volí při formátování FAT32
+partition. EasySD její hodnotu nepředpokládá ani nevyžaduje jednu konkrétní
+velikost; přečte ji z boot sektoru FAT32 a použije ji při výpočtu fyzického LBA.
+
+21. EasyCF – specifika CompactFlash
+-----------------------------------
+
+EasyCF používá pro přístup k médiu ATA/IDE rutiny místo SD driveru.
+
+Z pohledu uživatele zůstává princip stejný:
+
+- CF karta obsahuje FAT16 nebo FAT32,
+- program prověří partition,
+- vyhledá první použitelný MBD/MBH,
+- vypočítá jeho fyzický začátek,
+- nastaví BSDOS,
+- disky jsou číslovány 1–255.
+
+EasyCF používá CF kartu jako MASTER, druhý slot pro CF kartu na MB03+ není.
+
+Výběr partition, AUTO/MANUAL režim a SPACE override odpovídají EasySD.
+
+Stejně jako u EasySD platí nejdůležitější pravidlo:
+
+MBD/MBH oblast musí být fyzicky souvislá.
+
+Na reálném MB03+ bylo s EasyCF ověřeno čtení i zápis na CompactFlash kartu.
+Soubor uložený prostřednictvím BSDOSu na CF kartu byl následně znovu
+úspěšně přečten.
+
+Stav čtení/zápisu: PASS
+
+EasyCF bylo ověřeno také bez vložené CompactFlash karty. Po spuštění se
+zobrazí stav „Checking“, krátce problikne hlášení „Disk Time Out“ a
+přibližně po jedné sekundě program korektně skončí návratem do BASICu.
+Nedochází k nekonečnému čekání ani zamrznutí programu.
+
+22. Použití, chybové stavy a ukončení programu
+----------------------------------------------
+
+Po spuštění program prozkoumá médium a zobrazí nalezené partition.
+
+U každé zjistí:
+
+- zda obsahuje podporovaný FAT16/FAT32,
+- zda obsahuje použitelný MBD/MBH image.
+
+Příklad:
+
+P1   FAT16     PART1.MBD
+P2   NTFS
+P3   FAT32     PART3.MBD
+P4   prázdná
+
+P1 a P3 jsou použitelné.
+P2 a P4 použitelné nejsou.
+
+Barevné rozlišení v GUI
+~~~~~~~~~~~~~~~~~~~~~~~
+
+EasySD i EasyCF používají v přehledu partition jednoduché barevné
+rozlišení:
+
+- modře jsou zobrazeny položky použitelné pro BSDOS,
+- červeně jsou zobrazeny položky, které pro BSDOS použitelné nejsou.
+
+Uživatel tak na první pohled vidí, kterou partition lze vybrat a kterou ne.
+
+
+Identifikace zařízení a partition v katalogu BSDOS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Po instalaci je v titulku katalogu BSDOSu vidět také zdrojové zařízení
+a číslo partition.
+
+EasySD používá označení:
+
+S1:Pn BSD 308
+
+EasyCF používá označení:
+
+CF:Pn BSD 308
+
+kde n je číslo použité partition. Označení zachovává původní rozlišení
+BSDOS 308/308b. Správné zobrazení zařízení i čísla partition bylo
+ověřeno na reálném hardwaru.
+
+Stav: PASS
+
+
+No data
+~~~~~~~
+
+Pokud je FAT16/FAT32 rozpoznána, ale není v ní nalezen použitelný
+MBD/MBH image, program zobrazí stav odpovídající „No data“.
+
+
+Not Found
+~~~~~~~~~
+
+EasySD zobrazí „Not Found“, pokud SD karta není dostupná nebo
+inicializace SD selže.
+
+
+Disk Time Out
+~~~~~~~~~~~~~
+
+U EasyCF bez vložené CF karty se po stavu „Checking“ krátce zobrazí
+„Disk Time Out“. Program potom přibližně po jedné sekundě korektně
+ukončí instalaci a vrátí se do BASICu.
+
+
+EDIT
+~~~~
+
+Na eLeMeNtu používá ukončení EasySD klávesou EDIT 128K reset.
+
+Na MB03+ je EDIT řešeno návratem do nově inicializovaného BASICu tak,
+aby se zbytečně neporušil obsah RAM.
+
+Toto chování bylo ověřeno také při spuštění EasySD přímo z flash bootu:
+stisk EDIT korektně ukončí EasySD a vrátí uživatele do BASICu.
+
+======================================================================
+PŘÍLOHA A – TESTOVÁNÍ A OVĚŘENÍ
+======================================================================
+
+
+EasySD bylo testováno pomocí sady speciálně připravených RAW obrazů SD karet
+a také na skutečném hardwaru. Testy zahrnují FAT16, FAT32, více partition,
+nepodporované souborové systémy, superfloppy média, chybějící MBD/MBH data
+a různé velikosti clusterů FAT32.
+
+Všechny níže uvedené RAW testy proběhly úspěšně.
+
+
+TESTY RAW OBRAZŮ 01-16
+-----------------------
+
+Test 01
+Účel:
+  Základní test FAT16 partition.
+
+Konfigurace:
+  FAT16 partition
+  Boot LBA partition: 2048
+  MBD soubor přítomen
+
+Výsledek:
+  MBD soubor byl nalezen správně.
+  BSDOS disk se úspěšně spustil.
+
+Stav:
+  PASS
+
+
+Test 02
+Účel:
+  Základní test FAT32 partition.
+
+Konfigurace:
+  FAT32 partition
+  Boot LBA partition: 2048
+  TEST2.MBD
+  MBD LBA: 6083
+
+Výsledek:
+  FAT32 byla správně detekována.
+  TEST2.MBD byl nalezen na očekávaném LBA.
+  BSDOS disk se úspěšně spustil.
+
+Stav:
+  PASS
+
+
+Test 03
+Účel:
+  Další ověření FAT32.
+
+Konfigurace:
+  FAT32 partition
+  Boot LBA partition: 2048
+  TEST3.MBD
+  MBD LBA: 6083
+
+Výsledek:
+  FAT32 byla správně detekována.
+  MBD soubor byl nalezen na očekávaném LBA.
+  BSDOS disk se úspěšně spustil.
+
+Stav:
+  PASS
+
+
+Test 04
+Účel:
+  Více platných partition.
+
+Konfigurace:
+  Čtyři použitelné partition obsahující BSDOS image.
+
+Výsledek:
+  Všechny čtyři partition byly správně rozpoznány a byly použitelné.
+  BSDOS disky ze všech čtyř partition se úspěšně spustily.
+
+Stav:
+  PASS
+
+
+Test 05
+Účel:
+  Test FAT16 superfloppy.
+
+Konfigurace:
+  Bez MBR / partition table.
+  FAT16 boot sektor začíná přímo na LBA 0.
+  TEST4.MBD
+  MBD LBA: 296
+
+Výsledek:
+  EasySD správně rozpoznalo FAT16 superfloppy.
+  MBD soubor byl nalezen a BSDOS disk se úspěšně spustil.
+
+Stav:
+  PASS
+
+
+Test 06
+Účel:
+  Test FAT32 superfloppy.
+
+Konfigurace:
+  Bez MBR / partition table.
+  FAT32 boot sektor začíná přímo na LBA 0.
+  MBD LBA: 4067
+
+Výsledek:
+  EasySD správně rozpoznalo FAT32 superfloppy.
+  MBD soubor byl nalezen a BSDOS disk se úspěšně spustil.
+
+Stav:
+  PASS
+
+
+Test 07
+Účel:
+  Další test FAT16 partition.
+
+Konfigurace:
+  FAT16 partition
+  Boot LBA partition: 2048
+  TEST6.MBD
+  MBD LBA: 2344
+
+Výsledek:
+  FAT16 byla správně detekována.
+  MBD soubor byl nalezen na očekávaném LBA.
+  BSDOS disk se úspěšně spustil.
+
+Stav:
+  PASS
+
+
+Test 08
+Účel:
+  Platná FAT16 partition bez MBD/MBH dat.
+
+Konfigurace:
+  FAT16 partition
+  Boot LBA partition: 2048
+  Jsou přítomny jiné soubory, ale žádný MBD/MBH image.
+
+Výsledek:
+  FAT16 byla správně detekována.
+  EasySD správně oznámilo, že nejsou dostupná MBD/MBH data.
+
+Stav:
+  PASS
+
+
+Test 09
+Účel:
+  Platná FAT16 a FAT32 partition oddělené prázdnými partition.
+
+Konfigurace:
+  P1: prázdná
+  P2: FAT16
+      Boot LBA: 262144
+      PART2.MBD
+      MBD LBA: 262696
+  P3: prázdná
+  P4: FAT32
+      Boot LBA: 782336
+      PART4.MBD
+      MBD LBA: 786371
+
+Výsledek:
+  Prázdné partition byly ignorovány.
+  FAT16 i FAT32 byly správně detekovány.
+  Oba BSDOS disky se úspěšně spustily.
+
+Stav:
+  PASS
+
+
+Test 10
+Účel:
+  Kombinace podporovaných a nepodporovaných souborových systémů.
+
+Konfigurace:
+  P1: FAT16
+      Boot LBA: 2048
+      MBD LBA: 2600
+  P2: NTFS
+  P3: exFAT
+  P4: FAT32
+      Boot LBA: 782336
+      MBD LBA: 786371
+
+Výsledek:
+  FAT16 i FAT32 byly správně detekovány.
+  NTFS a exFAT byly ignorovány.
+  Oba BSDOS disky se úspěšně spustily.
+
+Stav:
+  PASS
+
+
+Test 11
+Účel:
+  Dvě FAT16 partition na různých fyzických pozicích.
+
+Konfigurace:
+  P1: FAT16
+      Boot LBA: 2048
+      PART1.MBD
+      MBD LBA: 2600
+
+  P3: FAT16
+      Boot LBA: 522240
+      PART3.MBD
+      MBD LBA: 522792
+
+Výsledek:
+  Obě FAT16 partition byly správně detekovány.
+  Absolutní LBA MBD souborů byla vypočítána správně.
+  Oba BSDOS disky se úspěšně spustily.
+
+Stav:
+  PASS
+
+
+Test 12
+Účel:
+  Kombinace nepodporovaných a podporovaných partition.
+
+Konfigurace:
+  P1: NTFS
+
+  P2: FAT16
+      Boot LBA: 262144
+      PART2.MBD
+      MBD LBA: 262696
+
+  P3: FAT32
+      Boot LBA: 522240
+      PART3.MBD
+      MBD LBA: 526275
+
+  P4: exFAT
+
+Výsledek:
+  NTFS a exFAT byly ignorovány.
+  FAT16 a FAT32 byly správně detekovány.
+  Oba MBD soubory byly nalezeny na očekávaných LBA.
+  Oba BSDOS disky se úspěšně spustily.
+
+Stav:
+  PASS
+
+
+Test 13
+Účel:
+  Žádná použitelná BSDOS partition.
+
+Konfigurace:
+  P1: prázdná
+  P2: NTFS
+  P3: FAT16
+      Boot LBA: 522240
+      bez MBD/MBH dat
+  P4: prázdná
+
+Výsledek:
+  Nepodporované a prázdné partition byly správně odmítnuty.
+  FAT16 byla rozpoznána, ale EasySD správně zobrazilo „No data“.
+  Nebyl nabídnut žádný BSDOS disk.
+
+Stav:
+  PASS
+
+
+Test 14
+Účel:
+  FAT16 partition s dalším MBD image.
+
+Konfigurace:
+  P1: FAT16
+      Boot LBA: 2048
+      TEST7.MBD
+      MBD LBA: 2344
+
+Výsledek:
+  FAT16 byla správně detekována.
+  TEST7.MBD byl nalezen na očekávaném LBA.
+  BSDOS disk se úspěšně spustil.
+
+Stav:
+  PASS
+
+
+Test 15
+Účel:
+  Zcela prázdná partition table.
+
+Konfigurace:
+  P1: prázdná
+  P2: prázdná
+  P3: prázdná
+  P4: prázdná
+
+Výsledek:
+  EasySD správně oznámilo, že není dostupná žádná použitelná partition.
+
+Stav:
+  PASS
+
+
+Test 16
+Účel:
+  Kombinace podporovaných partition bez BSDOS dat a nepodporovaných typů.
+
+Konfigurace:
+  P1: FAT16
+      Boot LBA: 2048
+      bez MBD/MBH dat
+
+  P2: Linux
+
+  P3: GPT protective partition
+
+  P4: FAT32
+      Boot LBA: 392048
+      bez MBD/MBH dat
+
+Výsledek:
+  FAT16 a FAT32 byly správně rozpoznány.
+  Obě podporované partition správně zobrazily „No data“.
+  Linux a GPT partition byly ignorovány.
+  Nebyl nabídnut žádný BSDOS disk.
+
+Stav:
+  PASS
+
+
+RAW TESTY VELIKOSTI CLUSTERU FAT32 17-23
+-----------------------------------------
+
+Následující obrazy byly vytvořeny speciálně pro ověření, že EasySD nepředpokládá
+pevnou velikost FAT32 clusteru a při výpočtu fyzického LBA MBD souboru správně
+používá hodnotu BPB_SecPerClus.
+
+
+Test 17
+SecPerClus:          1
+Velikost clusteru:   512 B
+Očekávané MBD LBA:   6083
+Pozorovaný výsledek: správný
+BSDOS disk:          funkční
+Stav:                PASS
+
+
+Test 18
+SecPerClus:          2
+Velikost clusteru:   1 KB
+Očekávané MBD LBA:   4102
+Pozorovaný výsledek: správný
+BSDOS disk:          funkční
+Stav:                PASS
+
+
+Test 19
+SecPerClus:          4
+Velikost clusteru:   2 KB
+Očekávané MBD LBA:   4116
+Pozorovaný výsledek: správný
+BSDOS disk:          funkční
+Stav:                PASS
+
+
+Test 20
+SecPerClus:          8
+Velikost clusteru:   4 KB
+Očekávané MBD LBA:   4136
+Pozorovaný výsledek: správný
+BSDOS disk:          funkční
+Stav:                PASS
+
+
+Test 21
+SecPerClus:          16
+Velikost clusteru:   8 KB
+Očekávané MBD LBA:   4144
+Pozorovaný výsledek: správný
+BSDOS disk:          funkční
+Stav:                PASS
+
+
+Test 22
+SecPerClus:          32
+Velikost clusteru:   16 KB
+Očekávané MBD LBA:   4160
+Pozorovaný výsledek: správný
+BSDOS disk:          funkční
+Stav:                PASS
+
+
+Test 23
+SecPerClus:          64
+Velikost clusteru:   32 KB
+Očekávané MBD LBA:   4224
+Pozorovaný výsledek: správný
+BSDOS disk:          funkční
+Stav:                PASS
+
+
+SOUHRN RAW TESTŮ
+----------------
+
+test01 - PASS
+test02 - PASS
+test03 - PASS
+test04 - PASS
+test05 - PASS
+test06 - PASS
+test07 - PASS
+test08 - PASS
+test09 - PASS
+test10 - PASS
+test11 - PASS
+test12 - PASS
+test13 - PASS
+test14 - PASS
+test15 - PASS
+test16 - PASS
+test17 - PASS
+test18 - PASS
+test19 - PASS
+test20 - PASS
+test21 - PASS
+test22 - PASS
+test23 - PASS
+
+Celkem:
+  23 RAW obrazů otestováno
+  23 úspěšných
+  0 neúspěšných
+
+
+TESTOVÁNÍ NA FYZICKÉM HARDWARU
+-------------------------------
+
+EasySD bylo testováno na skutečném eLeMeNtu ZX i MB03+ s fyzickými SD kartami.
+
+Na eLeMeNtu byly úspěšně ověřeny FAT32 velikosti alokační jednotky:
+
+512 B   - PASS
+1 KB    - PASS
+2 KB    - PASS
+4 KB    - PASS
+8 KB    - PASS
+
+Následné testy na fyzických SD kartách úspěšně ověřily také:
+
+16 KB   - PASS
+32 KB   - PASS
+64 KB   - PASS
+
+Odchod z EasySD klávesou EDIT byl na skutečném eLeMeNtu také ověřen a funguje
+správně.
+
+Test FAT32 s 16KB clustery odhalil důležitý problém přípravy SD karty.
+Disky 1-188 fungovaly, zatímco disk 189 a další hlásily „UNKNOWN FORMAT“.
+
+Analýza ukázala:
+
+188.MBD skončil na clusteru 24069
+WPSettings.dat obsadil cluster 24070
+189.MBD začal na clusteru 24071
+
+Soubor:
+
+System Volume Information\WPSettings.dat
+
+vytvořil Windows dodatečně poté, co byla FAT32 partition původně naformátována
+v Linuxu. Tím vložil jeden cluster nepatřící MBD souborům doprostřed jinak
+souvislé oblasti MBD.
+
+Nešlo o chybu FAT32 výpočtu EasySD. Test prokázal, že EasySD správně pracuje
+s 16KB clusterem, ale současně potvrdil, že oblast MBD/MBH musí zůstat fyzicky
+souvislá.
+
+Windows přípravný BAT byl proto upraven tak, aby před kopírováním MBD/MBH
+kontroloval systémová metadata Windows.
+
+
+DALŠÍ OVĚŘENÍ NA REÁLNÉM HARDWARU
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Na 512GB SD kartě byla na eLeMeNtu i MB03+ ověřena kombinace:
+
+P1   Linux
+P2   FAT16
+P3   FAT32
+P4   prázdná
+
+Na obou platformách byla správně rozpoznána FAT16 i FAT32 a bylo možné
+partition procházet a použít. Ověřena byla také práce s FAT16/FAT32
+partition na vysokém absolutním LBA, tedy i v oblasti blízko konce
+velkého fyzického média.
+
+Na MB03+ byla s aktuálním nízkoúrovňovým SD driverem úspěšně ověřena práce
+s FAT32 včetně čtení a zápisu, ukládání malých i velkých souborů a provozu
+při 20 MHz.
+
+Na eLeMeNtu ZX byl 7. 9. 2026 proveden závěrečný smoke test aktuálního
+release buildu EasySD. Čtení i zápis BSDOS souborů proběhly správně.
+
+Stav EasySD/eLeMeNt – čtení: PASS
+Stav EasySD/eLeMeNt – zápis: PASS
+
+Bylo ověřeno také chování AUTO/MANUAL výběru partition a jednorázové vynucení
+MANUAL režimu podržením SPACE při startu.
+
+Aktuální inicializace SD obsahuje časové limity a opakování pokusů, takže
+chybějící nebo nereagující karta již nemá vést k nekonečnému čekání; GUI
+v takovém případě zobrazí „Not Found“.
+
+Byl proveden také praktický test dlouhých názvů na fyzickém médiu.
+
+FAT32 s aktuálním přípravným BATem rezervujícím 2500 root-directory položek
+úspěšně zpřístupnila všech 255 MBD image s dlouhými VFAT/LFN názvy.
+
+Stav: PASS
+
+Na FAT16 bylo se srovnatelně dlouhými názvy možné uložit pouze 63 MBD
+souborů a EasySD první MBD image na takto připravené partition nenalezlo.
+Výsledek potvrzuje doporučení používat na FAT16 názvy ve formátu 8.3.
+
+Na MB03+ bylo ověřeno spuštění EasySD přímo z flash bootu. Stisk EDIT
+korektně ukončí EasySD a vrátí program do nově inicializovaného BASICu.
+
+Stav: PASS
+
+EasyCF bylo ověřeno také bez vložené CF karty. Program zobrazí „Checking“,
+krátce „Disk Time Out“ a přibližně po jedné sekundě se korektně vrátí
+do BASICu. Nedochází k zamrznutí ani nekonečnému čekání.
+
+Stav: PASS
+
+Na MB03+ byl proveden také závěrečný test EasyCF s reálnou CF kartou.
+Čtení fungovalo správně a zápis byl ověřen uložením souboru, který šel
+následně z BSDOSu znovu bez chyby přečíst.
+
+Stav EasyCF/MB03+ – čtení: PASS
+Stav EasyCF/MB03+ – zápis: PASS
+
+Při spuštění EasySD i EasyCF z flash bootu na MB03+ bylo ověřeno, že po
+úspěšné instalaci pokračuje start systému a spustí se AUTOEXE z nastaveného
+BSDOS disku. Rozdíl v zobrazené hlášce „AUTOEXE in process“, který se při
+testu objevil, byl způsoben rozdílným obsahem souboru AUTOEXE na konkrétních
+BSDOS discích, nikoli rozdílem mezi EasySD a EasyCF. Obě verze se v tomto
+ohledu chovají stejně.
+
+Stav: PASS
+
+
+ZÁVĚREČNÝ STAV HARDWAROVÝCH TESTŮ PRO 1.0
+------------------------------------------
+
+Po závěrečných regresních kontrolách 7. 9. 2026 jsou hlavní hardwarové
+varianty verze 1.0 ověřeny:
+
+EasySD / MB03+       - PASS
+EasySD / eLeMeNt ZX  - PASS
+EasyCF / MB03+       - PASS
+
+U EasySD i EasyCF bylo na příslušném reálném hardwaru ověřeno čtení.
+Zápis byl ověřen u EasySD na MB03+ i eLeMeNtu ZX a u EasyCF na MB03+.
+
+Ověřeno je rovněž:
+
+- FAT16 a FAT32,
+- FAT32 s různými velikostmi clusteru včetně 16 KB, 32 KB a 64 KB,
+- 512GB SD karta a vysoké absolutní LBA,
+- 255 MBD image s dlouhými VFAT/LFN názvy na FAT32,
+- omezení dlouhých názvů na FAT16 a doporučení 8.3,
+- AUTO/MANUAL a SPACE override,
+- chování bez vložené SD/CF karty,
+- EDIT ukončení,
+- spuštění EasySD z flash bootu,
+- pokračování do AUTOEXE při flash bootu na MB03+,
+- identifikace zařízení a partition v katalogu BSDOS pomocí S1:Pn / CF:Pn.
+
+Pro vydání 1.0 už není evidován žádný další nutný funkční test na reálném
+hardwaru. Zbývá dokončení dokumentace, HTML verze manuálu a příprava
+release na GitHubu.
+
+
+POZNÁMKA K TÉTO PRACOVNÍ VERZI
+-------------------------------
+
+Tato verze manuálu je společným dokumentem EasySD & EasyCF a je rozdělena
+na kratší seznamovací část a podrobnější technickou část.
+
+Po závěrečných testech 7. 9. 2026 byl odstraněn původní seznam nehotových
+hardwarových regresních testů. Bylo také potvrzeno finální chování
+parametru autoinstall:
+
+0 = pokračovat bez čekání
+1 = čekat na klávesu
+
+Windows PREPARE_EASY_FAT32.bat byl prakticky ověřen jak s již existujícími
+metadata System Volume Information, tak na čerstvé FAT32 partition.
+
+TODO pro verzi 1.1:
+
+- doplnit kontrolu konfiguračního bajtu partition (#8008),
+- platný rozsah je 1–8,
+- hodnota větší než 8 nesmí vést k indexování mimo tabulku,
+- při neplatné hodnotě použít bezpečný fallback na první použitelnou partition.
