@@ -88,7 +88,7 @@ START
 @autoinstall	db	0		;auto install (/wait for any key)
 @autoconfig	db	1		;1=auto configure (automatic search for first sector & set hdd parameters to VDT)
 ;new parameter for EasySD. If set to 0, selection will be done manually.
-@partition	db	4		;if @autoconfi=1, use values 1-4 (for SD0), 5-8 (for SD1), use partition. If not usable, use the first available from start
+@partition	db	4		;if @autoconfi=1, use values 1-4 (for SD1), 5-8 (for SD2), use partition. If not usable, use the first available from start
 @showsplash	db	0		;show splash screen
 @playnoise	db	0		;playnoise
 		db	1		;show gui
@@ -353,7 +353,7 @@ rp2	jp #358	;patch umistime hned za rutiny nmi menu do volneho mista
 ;definice znaku zamek
 zamek	defb 0,60,36,126,110,102,126,0		;end 1.18
 new_cat_text
-        defb    "S0:P0 BSD 308"
+        defb    "S1:P0 BSD 308"
 
 
 
@@ -430,11 +430,11 @@ dmano
 		ld	bc,112
 		ldir
 
-;pridavame do katalogu disku text S0 a cislo partisny P1-P4
+;pridavame do katalogu disku text S1 a cislo partisny P1-P4
 ; BS-DOS 308 ** BUSY SOFT'96
 ; BS-DOS 308b * BUSY SOFT'19
-; S0:P4 BSD 308 BUSY SOFT'96
-; S0:P4 BSD 308bBUSY SOFT'19
+; S1:P4 BSD 308 BUSY SOFT'96
+; S1:P4 BSD 308bBUSY SOFT'19
 
         ld      a,(#DCE)               ; mezera nebo 'b'
         ld      (#DD1),a               ; za nove "308"
