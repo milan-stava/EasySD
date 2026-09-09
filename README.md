@@ -122,3 +122,10 @@ See the [EasySD 1.0 release](https://github.com/milan-stava/EasySD/releases/tag/
 
 EasyCF is the CompactFlash counterpart of EasySD for MB03+.
 
+
+## Official website
+
+Full HTML documentation, screenshots and project information:
+
+[EasySD & EasyCF official website](https://hood.speccy.cz/dwnld.htm)
+
