@@ -127,5 +127,7 @@ EasyCF is the CompactFlash counterpart of EasySD for MB03+.
 
 Full HTML documentation, screenshots and project information:
 
-[EasySD & EasyCF official website](https://hood.speccy.cz/dwnld.htm)
+- [English documentation](https://hood.speccy.cz/dwnld/EasySD_CF_infoEN.html)
+- [Czech documentation](https://hood.speccy.cz/dwnld/EasySD_CF_infoCZ.html)
+- [German documentation](https://hood.speccy.cz/dwnld/EasySD_CF_infoDE.html)
 
