@@ -103,7 +103,8 @@ START
 ; On MB03+ the eLeMeNt ID is not present, so this routine
 ; returns without changing anything.
 ; eLeMeNt ZXi ports: #783B = register select, #793B = data.
-; e_zxi_0FF returns #E1 on eLeMeNt ZX.
+; e_zxi_0FF: upper nibble #E identifies the eLeMeNt family.
+; Lower nibble may change on future eLeMeNt revisions.
 ; e_zxi_001 = #02 selects DivSD + MB02+.
 EL_MB02_INIT
 		push	af
@@ -114,7 +115,8 @@ EL_MB02_INIT
 		out	(c),a
 		ld	bc,#793B
 		in	a,(c)
-		cp	#E1
+		and	#F0
+		cp	#E0
 		jr	nz,.done
 
 		ld	bc,#783B
@@ -520,30 +522,44 @@ dmano
 
 ;------------------------------------------------------------
 ; Vystup z EasySD
-; ELEMENT: korektni start BSDOSu pres systemovou sluzbu #30.
-;          Pokud AUTOSYS neni nalezen / vrati se, provedeme
-;          velky 128K reset pres BSROM (BusySoft).
-; MB03+:   puvodni zpusob ukonceni zustava beze zmeny.
 ;
-; Pri buildu pro eLeMeNt definuj symbol ELEMENT.
-	IFDEF ELEMENT
-		ld	a,97		; BSDOS banka 1, zapis povolen
-		out	(23),a
-		ld	a,1		; aktualni BSDOS disk @1
-		ld	(#03EE),a
-		ld	a,#30		; BSDOS service #30 START
-		rst	#20		; pokud se AUTOSYS nenajde, sluzba se vrati
-		call	GUI.AUTOSYS_NOT_FOUND
-		call	#3C98		; prepne na BSROM + zakaz zapisu
-		xor	a
-		jp	#3978		; velky 128K reset (BSROM 1.18/1.40)
-	ELSE
-		ld	a,%01000000
-		out	(23),a
-		ei
-		ret
-	ENDIF
+; eLeMeNt / MB03+ Slim:
+;   spusteni BSDOSu pres systemovou sluzbu #30.
+;   BSROM a BSDOS jsou jiz zavedeny bootstrapem.
+;
+; MB03+ Ultimate:
+;   puvodni zpusob ukonceni zustava beze zmeny.
 
+        IFDEF ELEMENT
+                ld      a,97            ; BSDOS banka 1, zapis povolen
+                out     (23),a
+                ld      a,1             ; aktualni BSDOS disk @1
+                ld      (#03EE),a
+                ld      a,#30           ; BSDOS service #30 START
+                rst     #20
+                call    GUI.AUTOSYS_NOT_FOUND
+                call    #3C98
+                xor     a
+                jp      #3978
+        ELSE
+                IFDEF SLIM
+                        ld      a,97     ; BSDOS banka 1, zapis povolen
+                        out     (23),a
+                        ld      a,1      ; aktualni BSDOS disk @1
+                        ld      (#03EE),a
+                        ld      a,#30    ; BSDOS service #30 START
+                        rst     #20
+                        call    GUI.AUTOSYS_NOT_FOUND
+                        call    #3C98
+                        xor     a
+                        jp      #3978
+                ELSE
+                        ld      a,%01000000
+                        out     (23),a
+                        ei
+                        ret
+                ENDIF
+        ENDIF
 ;------------------------------
 ;------------------------------
 ADR442
