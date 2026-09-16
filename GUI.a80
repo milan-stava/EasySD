@@ -6,18 +6,34 @@
 		include	"draw-jugo.a80"
 		include	"cls.a80"
 ;		include	"sprite1.a80"
+	IFNDEF DUAL_GUI_TEST
 CaroLogo	incbin	"CaroLogo.bin"
 NewdimLogo	incbin	"NewdimLogo.bin"
+	ENDIF
 		include	"sprite2.a80"
 eightbc_i	incbin	"8BC_I.cde"
 ;EasyLogoSmall	incbin	"EasyLogoSmall.bin"
 EasyLogoSmall	incbin	"ehSDnewlogo.cde"
 ;		include "lbaread.a80"	;vlozeno primo do kodu GUI
 ;		include "sd_rw.asm"	;SD card init, read, write---dame to dozadu
+	IFNDEF DUAL_GUI_TEST
 zvuk		incbin	"ZVUK.BIN"
 zvukend
+	ENDIF
 
 @SP_TAB
+	IFDEF DUAL_GUI_TEST
+; Testovaci 1.1 GUI nepouziva velke intro obrazky. Ctvrty zaznam musi
+; zustat zachovan, protoze hlavicka vola sprite cislo 3.
+@TAB_sprite1	defb	1,2
+		defw	eightbc_i
+		defb	1,2
+		defw	eightbc_i
+		defb	1,2
+		defw	eightbc_i
+		defb	1,2
+		defw	eightbc_i
+	ELSE
 @TAB_sprite1	defb	10,2
 		defw	CaroLogo
 		defb	24,20
@@ -26,6 +42,7 @@ zvukend
 		defw	eightbc_i
 		defb	1,2
 		defw	eightbc_i
+	ENDIF
 ;		defb	25,2
 ;		defw	EasyLogoSmall
 
@@ -36,7 +53,201 @@ zvukend
 
 zvukcmp equ	60000		;adresa zkopilovaneho zvuku
 
-gui	di
+DUAL_PASS		db 1
+DUAL_PARTITION_SD1	db 1
+DUAL_PARTITION_SD2	db 1
+DUAL_LBA_SD1		db 0,0,0,0
+DUAL_LBA_SD2		db 0,0,0,0
+
+	IFDEF DUAL_GUI_TEST
+DUAL_PRESENT_SD1	db 0
+DUAL_PRESENT_SD2	db 0
+DUAL_SELECTED_SD1	db 0
+DUAL_SELECTED_SD2	db 0
+DUAL_CARD_INFO_SD1	block 32,0	;CID 16B + CSD 16B
+DUAL_CARD_INFO_SD2	block 32,0
+DUAL_CURSOR_INDEX	db 0		;0-based viditelny radek
+DUAL_CURSOR_ADDR	dw 0		;atributova adresa aktualniho radku
+DUAL_FORCE_MANUAL	db 0		;SPACE zachyceny hned na zacatku skenovani
+	ENDIF
+
+; Docasne dvouprchodove GUI: stejna overena obrazovka nejprve pro SD1,
+; potom pro SD2. Finalni osmipolozkove GUI prijde po overeni backendu.
+gui
+	IFDEF DUAL_GUI_TEST
+		jp	gui_dual_test
+	ENDIF
+
+	ld	a,SD_0
+	ld	(card_select),a
+	ld	a,1
+	ld	(DUAL_PASS),a
+	call	gui_one
+
+	ld	a,(@partition)
+	ld	(DUAL_PARTITION_SD1),a
+	ld	de,DUAL_LBA_SD1
+	call	save_selected_lba
+
+	ld	hl,VDT
+	ld	de,VDT+128
+	ld	bc,128
+	ldir
+	xor	a
+	ld	hl,VDT
+	ld	de,VDT+1
+	ld	bc,127
+	ld	(hl),a
+	ldir
+
+	ld	a,SD_1
+	ld	(card_select),a
+	ld	a,2
+	ld	(DUAL_PASS),a
+	call	gui_one
+
+	ld	a,(@partition)
+	ld	(DUAL_PARTITION_SD2),a
+	ld	de,DUAL_LBA_SD2
+	call	save_selected_lba
+
+; Po druhem pruchodu je SD2 v prvni polovine a odlozena SD1 ve druhe.
+; Prohodime je do finalniho poradi SD1 (1-4), SD2 (5-8).
+	ld	hl,VDT
+	ld	de,BUFFER
+	ld	bc,128
+	ldir
+	ld	hl,VDT+128
+	ld	de,VDT
+	ld	bc,128
+	ldir
+	ld	hl,BUFFER
+	ld	de,VDT+128
+	ld	bc,128
+	ldir
+
+	ld	a,SD_0
+	ld	(card_select),a
+	ld	a,(DUAL_PARTITION_SD1)
+	ld	(@partition),a
+	ret
+
+	IFDEF DUAL_GUI_TEST
+; Prvni emulatorovy mezikrok: oba sloty se proskenuji bez stareho
+; ctyrradkoveho menu. Vysledky se pak slozi na jedinou obrazovku.
+gui_dual_test
+	call	clear_dual_test_data
+	xor	a
+	ld	(DUAL_FORCE_MANUAL),a
+	call	dual_latch_space
+	call	draw_dual_overview
+
+	ld	a,SD_0
+	ld	(card_select),a
+	ld	a,1
+	ld	(DUAL_PASS),a
+	call	clear_scan_vdt
+	call	gui_one
+	call	dual_latch_space
+
+; Odloz SD1 VDT do druhe poloviny a priprav prvni polovinu pro SD2.
+	ld	hl,VDT
+	ld	de,VDT+128
+	ld	bc,128
+	ldir
+	call	clear_scan_vdt
+
+	ld	a,SD_1
+	ld	(card_select),a
+	ld	a,2
+	ld	(DUAL_PASS),a
+	call	gui_one
+	call	dual_latch_space
+
+; Po druhem skenu je SD2 v prvni polovine, SD1 ve druhe. Prohod poradi.
+	ld	hl,VDT
+	ld	de,BUFFER
+	ld	bc,128
+	ldir
+	ld	hl,VDT+128
+	ld	de,VDT
+	ld	bc,128
+	ldir
+	ld	hl,BUFFER
+	ld	de,VDT+128
+	ld	bc,128
+	ldir
+
+	call	dual_prepare_auto_selection
+	call	dual_latch_space	;posledni kontrola tesne pred AUTO potvrzenim
+	ld	a,(DUAL_FORCE_MANUAL)
+	or	a
+	jr	nz,.manual_selection
+	call	dual_prepare_selection_screen
+	call	dual_confirm_selection
+	or	a
+	jr	nz,.selection_done
+.manual_selection
+	call	dual_selection_menu
+.selection_done
+	IFDEF DUAL_GUI_INSTALL_TEST
+	ret
+	ELSE
+	jp	end_easy_exit
+	ENDIF
+
+clear_dual_test_data
+	xor	a
+	ld	hl,DUAL_PRESENT_SD1
+	ld	de,DUAL_PRESENT_SD1+1
+	ld	bc,DUAL_CARD_INFO_SD2+32-DUAL_PRESENT_SD1-1
+	ld	(hl),a
+	ldir
+	ld	(DUAL_PARTITION_SD1),a
+	ld	(DUAL_PARTITION_SD2),a
+	ret
+
+clear_scan_vdt
+	xor	a
+	ld	hl,VDT
+	ld	de,VDT+1
+	ld	bc,127
+	ld	(hl),a
+	ldir
+	ret
+
+; Zachyt SPACE v nekolika bodech dlouheho skenovani. Jakmile byl jednou
+; stisknuty, priznak zustane nastaveny az do vstupu do rucniho menu.
+dual_latch_space
+	ld	a,#7F
+	in	a,(#FE)		;#7FFE, bit 0 = SPACE, aktivni v nule
+	cpl
+	and	1
+	ret	z
+	ld	(DUAL_FORCE_MANUAL),a
+	ret
+	ENDIF
+
+; A=partition 1-4, DE=cilovy 4B LBA buffer.
+save_selected_lba
+	dec	a
+	ld	l,a
+	ld	h,0
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	ld	bc,VDT+1
+	add	hl,bc
+	ld	bc,4
+	ldir
+	ret
+
+gui_one	di
+	IFDEF DUAL_GUI_TEST
+	jp	dual_scan_start
+	ENDIF
 ;	xor	a
 ;	out	(254),a
 
@@ -44,6 +255,7 @@ gui	di
 ;;	jp	L3+6
 
 ;splash screen
+	IFNDEF DUAL_GUI_TEST
 	ld	a,(@showsplash)
 	or	a
 	jr	z,nosplash
@@ -85,6 +297,7 @@ gui	di
 	call	zvukplay
 	call	zvukcmp+57	;ticho
 ;	call	ANYKEY
+	ENDIF
 
 nosplash
 	call	cls.CLS
@@ -122,26 +335,49 @@ nosplash
 	ld	de,#20C0
 	call	draw_jugo.DRAW
 
-;MASTER IDENTIFY
-	ld	hl,TEXT3	
+;SD1/SD2 IDENTIFY
+	ld	a,(DUAL_PASS)
+	dec	a
+	ld	hl,TEXT_SD1
+	jr	z,.slot_text_ready
+	ld	hl,TEXT_SD2
+.slot_text_ready
 	ld	bc,#0502
 	call	T42_TEXT
 
 	ld	hl,TEXT8
+	IFDEF DUAL_GUI_TEST
+	ld	bc,#050B
+	ELSE
 	ld	bc,#050A
+	ENDIF
 	call	T42_TEXT	;piseme checking...	
 
+	IFDEF DUAL_GUI_TEST
+dual_scan_start
+		call	draw_dual_checking_slot
+		call	dual_sd_quick_probe
+		cp	1
+		jr	nz,SD_INIT_FAILED
+	ENDIF
 	call	SD_INIT		;initialise SD card
 	or	a
 	jr	z,SD_INIT_OK
 
 ; Bez karty: vypis chybu a rovnou ukonci EasySD.
 ;	Do CID/CSD ani vyberu partitions uz nepokracujeme.
+SD_INIT_FAILED
+	IFDEF DUAL_GUI_TEST
+		call	mark_dual_card_missing
+		call	draw_dual_missing_slot
+		ret
+	ELSE
 	ld	hl,TEXT_SD_NOT_FOUND
 	ld	bc,#050A
 	call	T42_TEXT
 	call	ANYKEY
 	jp	end_easy_exit
+	ENDIF
 
 SD_INIT_OK
 					;identifikace SD karty
@@ -151,7 +387,30 @@ SD_INIT_OK
 	ld	ix,BUFFER+16
 	call	SD_CSD			;nacti dalsi registry SD karty
 	call	SD_OFF
+	IFDEF DUAL_GUI_TEST
+		call	save_dual_card_info
+		call	draw_dual_present_slot
+		jp	dual_partition_scan_start
+	ENDIF
 	jr	MASTERINFO
+
+	IFDEF DUAL_GUI_TEST
+; Jeden rychly CMD0 pokus pred puvodnim SD_INIT. Chybejici slot tak
+; neprojde dlouhou opakovaci smyckou, ale pritom pritomna karta stale
+; dostane kompletni puvodni inicializaci se vsemi retry.
+dual_sd_quick_probe
+	ld	a,#FF
+	out	(OUT_PORT),a
+	call	SD_POWER_ON
+	ld	a,(card_select)
+	out	(OUT_PORT),a
+	call	SD_RESET
+	push	af
+	ld	a,#FF
+	out	(OUT_PORT),a
+	pop	af
+	ret
+	ENDIF
 
 MASTERINFO
 	ld	hl,TEXT4	;nejdriv vypise texty
@@ -833,6 +1092,23 @@ FirstFileLBA
 
 ;tab_part	db	0,4,15,26	;sloupec tisku hodnot pro 4 partisny
 
+	IFDEF DUAL_GUI_TEST
+; DUAL GUI kresli partition rovnou do finalnich pevnych radku.
+; VDT kazdeho samostatneho skenu zustava docasne v prvni 128B polovine.
+dual_partition_scan_start
+	ld	ix,BUFFER+446
+	ld	a,(DUAL_PASS)
+	cp	1
+	ld	b,13			;SD1 P1-P4 = radky 13-16
+	jr	z,.row_ready
+	ld	b,17			;SD2 P1-P4 = radky 17-20
+.row_ready
+	ld	hl,VDT
+	ld	(VDT_pointer+1),hl
+	ld	a,4
+	jp	test_partitions
+	ENDIF
+
 next
 	ld	hl,TEXTPARSEC
 	ld	bc,#0B02
@@ -1404,7 +1680,7 @@ no_data_red_seek
 	add	hl,de
 	djnz	no_data_red_seek
 	ld	b,cursor_len	; stejne dlouhy radek jako kurzor (29 atributu)
-	ld	a,66		; bright red ink, black paper
+	ld	a,2		; normal red ink, black paper
 no_data_red_fill
 	ld	(hl),a
 	inc	hl
@@ -1826,6 +2102,9 @@ ep3		add	hl,bc
 ep2		pop	bc			;BC=tiskova pozice
 		pop	ix
 		pop	af
+	IFDEF DUAL_GUI_TEST
+		call	color_dual_partition_row
+	ENDIF
 
 		inc	b			;zvys poradovy radek
 		ld	de,16
@@ -2351,7 +2630,8 @@ Slaveinentify
 ;vyruseni SLAVE
 ;*/
 */
-	ld	hl,TEXT17		;DMA info
+	IFNDEF DUAL_GUI_TEST
+	ld	hl,TEXT17		;DMA info (pouze puvodni jednodiskove GUI)
 	ld	bc,#1402
 	call	T42_TEXT
 	inc	c
@@ -2363,8 +2643,12 @@ Slaveinentify
 	ld	hl,TEXT19
 ;	ld	bc,#1303
 	call	T42_TEXT
+	ENDIF
 
 Endinentify
+	IFDEF DUAL_GUI_TEST
+		ret			;scan hotov, vyber probiha az na spolecne obrazovce
+	ENDIF
 ;projed partisny, zda jsou vsechny platne
 ;	call	check_for_valid
 ;	jp	z,end_easy		;tohle musi pryc, pri ani jedne platne partisne to primo vyskakovalo z programu ven
@@ -2515,6 +2799,841 @@ clear_sysvars
 	ret			;navrat do BASICu
 */
 	ENDIF
+
+	IFDEF DUAL_GUI_TEST
+; Uloz 32 bajtu CID+CSD drive, nez BUFFER prepisi sektory partition.
+save_dual_card_info
+	ld	a,(DUAL_PASS)
+	cp	1
+	ld	de,DUAL_CARD_INFO_SD1
+	ld	hl,DUAL_PRESENT_SD1
+	jr	z,.target_ready
+	ld	de,DUAL_CARD_INFO_SD2
+	ld	hl,DUAL_PRESENT_SD2
+.target_ready
+	ld	(hl),1
+	ld	hl,BUFFER
+	ld	bc,32
+	ldir
+	ret
+
+mark_dual_card_missing
+	ld	a,(DUAL_PASS)
+	cp	1
+	ld	hl,DUAL_PRESENT_SD1
+	jr	z,.store
+	ld	hl,DUAL_PRESENT_SD2
+.store
+	xor	a
+	ld	(hl),a
+	ret
+
+; Vykresli ihned finalni prazdny layout. Jednotlive sloty jej potom
+; doplnuji za behu: SD1 vcetne P1-P4, nasledne SD2 vcetne P1-P4.
+draw_dual_overview
+	call	draw_dual_error_overview
+	ld	hl,TEXTPARSEC
+	ld	bc,#0C02
+	call	T42_TEXT
+	ld	hl,TEXT_DUAL_STAGE3
+	ld	bc,#1602
+	call	T42_TEXT
+	ret
+
+; Cisty ramec pro chybu pred skenovanim. Zamerne bez hlavicky partition
+; tabulky a bez ovladaciho textu.
+draw_dual_error_overview
+	call	cls.CLS
+	call	T_START
+	ld	a,3
+	call	sprite2.SP_
+	call	EasyLogoSmall
+	ld	hl,TEXT1
+	ld	bc,#020C
+	call	T42_TEXT
+	ld	hl,TEXT2
+	ld	bc,#030D
+	call	T42_TEXT
+	ld	bc,#0E3B
+	ld	de,#0EBF
+	call	draw_jugo.DRAW
+	ld	bc,#213B
+	ld	de,#21BF
+	call	draw_jugo.DRAW
+	ld	bc,#0F3A
+	ld	de,#203A
+	call	draw_jugo.DRAW
+	ld	bc,#0FC0
+	ld	de,#20C0
+	call	draw_jugo.DRAW
+
+	ret
+
+; Aktualni slot dostane zluty nazev a cervene checking... uz pred SD_INIT.
+draw_dual_checking_slot
+	call	dual_current_slot_position
+	call	T42_TEXT
+	ld	hl,TEXT8
+	jp	T42_TEXT
+
+; Po CID/CSD zobraz informace aktualniho slotu do jeho tri pevnych radku.
+draw_dual_present_slot
+	ld	ix,BUFFER
+	ld	a,(DUAL_PASS)
+	ld	d,5
+	cp	1
+	jr	z,.row_ready
+	ld	d,8
+.row_ready
+	jp	draw_dual_card_info
+
+; Chybejici slot: SDx zustane zlute, text a vsechny ctyri radky cervene.
+draw_dual_missing_slot
+	call	dual_current_slot_position
+	call	T42_TEXT
+	ld	hl,TEXT_DUAL_NOT_INSERTED
+	call	T42_TEXT
+	ld	a,(DUAL_PASS)
+	cp	1
+	ld	a,13
+	jr	z,.row_ready
+	ld	a,17
+.row_ready
+	jp	draw_no_card_partition_rows
+
+; OUT: HL=SD1:/SD2:, BC=pevna pozice prvniho radku slotu.
+dual_current_slot_position
+	ld	a,(DUAL_PASS)
+	cp	1
+	ld	hl,TEXT_DUAL_SD1_CARD
+	ld	bc,#0502
+	ret	z
+	ld	hl,TEXT_DUAL_SD2_CARD
+	ld	bc,#0802
+	ret
+
+; A = prvni ze ctyr pevnych partition radku chybejici karty.
+draw_no_card_partition_rows
+	ld	e,a
+	ld	d,4
+.loop
+	push	de
+	ld	hl,TEXT_DUAL_NO_CARDS
+	ld	b,e
+	ld	c,2
+	call	T42_TEXT
+	pop	de
+	inc	e
+	dec	d
+	jr	nz,.loop
+	ret
+
+; IX = ulozeny CID(16 B)+CSD(16 B), A = slot 1/2, D = prvni radek.
+draw_dual_card_info
+	ld	(DUAL_DRAW_SLOT),a
+	ld	a,d
+	ld	(DUAL_DRAW_ROW),a
+
+; Radek 1: zlute SDx, za nim modre vyrobce,OID,PNM
+	cp	0			;jen bezpecne obnovime A dale z promenne
+	ld	a,(DUAL_DRAW_SLOT)
+	cp	1
+	ld	hl,TEXT_DUAL_SD1_CARD
+	jr	z,.slot_label_ready
+	ld	hl,TEXT_DUAL_SD2_CARD
+.slot_label_ready
+	ld	a,(DUAL_DRAW_ROW)
+	ld	b,a
+	ld	c,2
+	call	T42_TEXT
+	ld	a,69
+	ld	(T42_ATT),a
+	ld	a,(ix+0)
+	call	select_dual_manufacturer
+	call	T42_TEXT
+	ld	hl,carka
+	call	T42_TEXT
+	push	ix
+	pop	hl
+	inc	hl
+	ld	a,2
+	call	draw_dual_raw_ascii
+	ld	hl,carka
+	call	T42_TEXT
+	push	ix
+	pop	hl
+	ld	de,3
+	add	hl,de
+	ld	a,5
+	call	draw_dual_raw_ascii
+
+; Radek 2: Rev:x.x SN:ddd,ddd,ddd,ddd CSD:x.x
+	ld	a,(DUAL_DRAW_ROW)
+	inc	a
+	ld	b,a
+	ld	c,2
+	ld	hl,TEXT_DUAL_REV
+	call	T42_TEXT
+	ld	a,69
+	ld	(T42_ATT),a
+	ld	a,(ix+8)
+	push	af
+	rrca
+	rrca
+	rrca
+	rrca
+	and	#0F
+	add	a,'0'
+	push	bc
+	call	T42
+	pop	bc
+	inc	c
+	ld	a,'.'
+	push	bc
+	call	T42
+	pop	bc
+	inc	c
+	pop	af
+	and	#0F
+	add	a,'0'
+	push	bc
+	call	T42
+	pop	bc
+
+	ld	hl,TEXT_DUAL_SN
+	ld	a,(DUAL_DRAW_ROW)
+	inc	a
+	ld	b,a
+	ld	c,10
+	call	T42_TEXT
+	ld	a,69
+	ld	(T42_ATT),a
+	ld	l,(ix+9)
+	ld	h,0
+	ld	c,13
+	call	NUMBER2
+	inc	c
+	ld	hl,carka
+	call	T42_TEXT
+	ld	l,(ix+10)
+	ld	h,0
+	call	NUMBER2
+	inc	c
+	ld	hl,carka
+	call	T42_TEXT
+	ld	l,(ix+11)
+	ld	h,0
+	call	NUMBER2
+	inc	c
+	ld	hl,carka
+	call	T42_TEXT
+	ld	l,(ix+12)
+	ld	h,0
+	call	NUMBER2
+
+	ld	hl,TEXT_DUAL_CSD
+	ld	a,(DUAL_DRAW_ROW)
+	inc	a
+	ld	b,a
+	ld	c,29
+	call	T42_TEXT
+	ld	a,69
+	ld	(T42_ATT),a
+	ld	a,(ix+16)
+	and	%11000000
+	ld	hl,TEXT_20
+	jr	nz,.csd_text_ready
+	ld	hl,TEXT_10
+.csd_text_ready
+	call	T42_TEXT
+
+; Radek 3: Date:mm/yyyy RBL:value Size:value G
+	ld	a,(DUAL_DRAW_ROW)
+	add	a,2
+	ld	b,a
+	ld	c,2
+	ld	hl,TEXT_DUAL_DATE
+	call	T42_TEXT
+	ld	a,69
+	ld	(T42_ATT),a
+	ld	a,(ix+14)
+	push	af
+	and	#0F
+	ld	l,a
+	ld	h,0
+	ld	c,7
+	call	NUMBER1
+	inc	c
+	ld	hl,lomeno
+	call	T42_TEXT
+	ld	hl,2000
+	ld	d,(ix+13)
+	pop	af
+	ld	e,a
+	ld	a,4
+.date_shift
+	srl	d
+	rr	e
+	dec	a
+	jr	nz,.date_shift
+	ld	d,0
+	add	hl,de
+	call	NUMBER3
+
+	ld	hl,TEXT_DUAL_RBL
+	ld	a,(DUAL_DRAW_ROW)
+	add	a,2
+	ld	b,a
+	ld	c,15
+	call	T42_TEXT
+	ld	a,69
+	ld	(T42_ATT),a
+	ld	a,(ix+21)
+	and	#0F
+	ld	hl,1
+	or	a
+	jr	z,.rbl_ready
+.rbl_shift
+	add	hl,hl
+	dec	a
+	jr	nz,.rbl_shift
+.rbl_ready
+	ld	c,19
+	call	print_dual_uint16
+
+	ld	hl,TEXT_DUAL_SIZE
+	ld	a,(DUAL_DRAW_ROW)
+	add	a,2
+	ld	b,a
+	ld	c,25
+	call	T42_TEXT
+	ld	a,69
+	ld	(T42_ATT),a
+	ld	h,(ix+23)
+	ld	l,(ix+24)
+	ld	a,3
+.size_shift
+	srl	h
+	rr	l
+	dec	a
+	jr	nz,.size_shift
+	inc	hl
+	ld	c,30
+	call	print_dual_uint16
+	inc	c
+	ld	hl,TEXT_GB
+	call	T42_TEXT
+	ret
+
+select_dual_manufacturer
+	cp	1
+	ld	hl,Manufacturer1
+	ret	z
+	cp	2
+	ld	hl,Manufacturer2
+	ret	z
+	cp	3
+	ld	hl,Manufacturer3
+	ret	z
+	cp	#1B
+	ld	hl,Manufacturer1b
+	ret	z
+	cp	#1D
+	ld	hl,Manufacturer1d
+	ret	z
+	cp	#27
+	ld	hl,Manufacturer27
+	ret	z
+	cp	#31
+	ld	hl,Manufacturer31
+	ret	z
+	cp	#74
+	ld	hl,Manufacturer74
+	ret	z
+	cp	#9F
+	ld	hl,Manufacturer9f
+	ret	z
+	ld	hl,ManufacturerOther
+	ret
+
+; HL=zdroj, A=pocet, BC=pozice. Vraci BC za poslednim znakem.
+draw_dual_raw_ascii
+	ld	e,a
+.loop
+	ld	a,(hl)
+	and	#7F
+	push	hl
+	push	de
+	push	bc
+	call	T42
+	pop	bc
+	pop	de
+	pop	hl
+	inc	hl
+	inc	c
+	dec	e
+	jr	nz,.loop
+	ret
+
+; Vytiskne HL bez nul zleva. NUMBERx vraci C na posledni cislici.
+print_dual_uint16
+	push	hl
+	ld	de,10000
+	or	a
+	sbc	hl,de
+	pop	hl
+	jp	nc,NUMBER4
+	push	hl
+	ld	de,1000
+	or	a
+	sbc	hl,de
+	pop	hl
+	jp	nc,NUMBER3
+	push	hl
+	ld	de,100
+	or	a
+	sbc	hl,de
+	pop	hl
+	jp	nc,NUMBER2
+	push	hl
+	ld	de,10
+	or	a
+	sbc	hl,de
+	pop	hl
+	jp	nc,NUMBER1
+	jp	NUMBER0
+
+; ------------------------------------------------------------
+; EasySD 1.1: automaticka predvolba pro oba sloty. Preferovana P1-P4
+; se pouzije, je-li platna; jinak prvni platna partition na teze karte.
+dual_prepare_auto_selection
+	ld	a,(@dual_partition_sd1)
+	ld	c,0			;SD1 = VDT zaznamy 1-4
+	call	dual_find_slot_partition
+	ld	(DUAL_SELECTED_SD1),a
+	ld	a,(@dual_partition_sd2)
+	ld	c,4			;SD2 = VDT zaznamy 5-8
+	call	dual_find_slot_partition
+	ld	(DUAL_SELECTED_SD2),a
+	ret
+
+; IN: A=preferovana fyzicka P1-P4, C=VDT offset 0/4.
+; OUT: A=vybrana fyzicka P1-P4, nebo 0. Prednost ma preference,
+; pote se hleda od P1. Hledani nikdy neprejde na druhou kartu.
+dual_find_slot_partition
+	cp	1
+	jr	c,.fallback
+	cp	5
+	jr	nc,.fallback
+	ld	b,a
+	add	a,c
+	push	bc
+	call	test_partition
+	pop	bc			;POP BC zachova priznaky z BIT
+	ld	a,b
+	ret	nz
+.fallback
+	ld	b,1
+.loop
+	ld	a,b
+	add	a,c
+	push	bc
+	call	test_partition
+	pop	bc
+	ld	a,b
+	ret	nz
+	inc	b
+	ld	a,b
+	cp	5
+	jr	nz,.loop
+	xor	a
+	ret
+
+; Spolecna inicializace markeru a souradnic pro AUTO i MANUAL.
+dual_prepare_selection_screen
+	xor	a
+	ld	(DUAL_CURSOR_INDEX),a
+	ld	hl,#59A1		;radek 13, atributovy sloupec 1
+	ld	(DUAL_CURSOR_ADDR),hl
+	jp	dual_draw_all_markers
+
+; Na realnem MB03+ muze KEYSCAN kratce vratit nulu i pri fyzicky drzenem
+; SPACE. Nejprve proto cekame primo na bit klavesnice #7FFE a teprve
+; potom vycistime obecny stav KEYSCAN pred aktivaci menu.
+dual_wait_key_release
+	ld	a,#7F
+	in	a,(#FE)
+	bit	0,a			;SPACE je aktivni v nule
+	jr	z,dual_wait_key_release
+.wait_all_keys
+	call	KEYSCAN
+	or	a
+	jr	nz,.wait_all_keys
+	ret
+
+; Spolecny rucni vyber partition. Automaticke hvezdicky zustanou
+; predvolene a ENTER je muze zmenit nebo zrusit.
+dual_selection_menu
+	call	dual_prepare_selection_screen
+	call	dual_draw_cursor
+	call	dual_wait_key_release	;kurzor uz je videt, puvodni drzeny SPACE se zahodi
+
+.key_loop
+	call	KEYSCAN
+	or	a
+	jr	z,.key_loop
+	cp	#0B			;nahoru
+	jr	z,.key_up
+	cp	#0A			;dolu
+	jr	z,.key_down
+	cp	13			;ENTER
+	jr	z,.key_enter
+	cp	32			;SPACE
+	jr	z,.key_space
+	cp	7			;EDIT
+	jp	z,end_easy_exit
+	jr	.key_loop
+
+.key_up
+	call	dual_cursor_up
+	jr	.key_loop
+.key_down
+	call	dual_cursor_down
+	jr	.key_loop
+.key_enter
+	call	dual_toggle_selection
+	jr	.key_loop
+.key_space
+	call	dual_confirm_selection
+	or	a
+	jr	z,.key_loop
+	ret
+
+dual_cursor_up
+	ld	a,(DUAL_CURSOR_INDEX)
+	or	a
+	ret	z
+	call	dual_undraw_cursor
+	ld	hl,DUAL_CURSOR_INDEX
+	dec	(hl)
+	ld	hl,(DUAL_CURSOR_ADDR)
+	ld	de,32
+	or	a
+	sbc	hl,de
+	ld	(DUAL_CURSOR_ADDR),hl
+	jp	dual_draw_cursor
+
+dual_cursor_down
+	ld	a,(DUAL_CURSOR_INDEX)
+	cp	7			;kurzor vzdy prochazi osm pevnych radku
+	ret	z
+	call	dual_undraw_cursor
+	ld	hl,DUAL_CURSOR_INDEX
+	inc	(hl)
+	ld	hl,(DUAL_CURSOR_ADDR)
+	ld	de,32
+	add	hl,de
+	ld	(DUAL_CURSOR_ADDR),hl
+	jp	dual_draw_cursor
+
+; Plnosirkovy kurzor pres 30 vnitrnich atributu. INK zustava cerveny/cyan,
+; PAPER se u obou typu radku prepne na stejnou modrou paletovou skupinu.
+DUAL_CURSOR_LEN	equ 30
+dual_draw_cursor
+	ld	hl,(DUAL_CURSOR_ADDR)
+	ld	b,DUAL_CURSOR_LEN
+.loop
+	ld	a,(hl)
+	and	%10000111		;zachovej FLASH a INK, smaz PAPER+BRIGHT
+	or	%01001000		;stejny modry PAPER a BRIGHT pro oba typy
+	ld	(hl),a
+	inc	hl
+	djnz	.loop
+	xor	a
+	ret
+
+dual_undraw_cursor
+	call	dual_cursor_vdt_index
+	call	test_partition
+	ld	a,2			;neplatna partition = normalni cervena
+	jr	z,.attr_ready
+	ld	a,69			;platna partition = puvodni cyan/modra
+.attr_ready
+	ld	hl,(DUAL_CURSOR_ADDR)
+	ld	b,DUAL_CURSOR_LEN
+.loop
+	ld	(hl),a
+	inc	hl
+	djnz	.loop
+	xor	a
+	ret
+
+; Vraci A=1..8, index zaznamu ve finalni VDT.
+dual_cursor_vdt_index
+	ld	a,(DUAL_CURSOR_INDEX)
+	inc	a			;pevne VDT zaznamy 1..8
+	ret
+
+; Vraci B=slot 1/2 a A=fyzicka partition 1..4.
+dual_cursor_slot_partition
+	ld	a,(DUAL_CURSOR_INDEX)
+	cp	4
+	jr	nc,.slot2
+	inc	a
+	ld	b,1
+	ret
+.slot2
+	sub	3
+	ld	b,2
+	ret
+
+dual_toggle_selection
+	call	dual_cursor_vdt_index
+	call	test_partition
+	jr	z,.invalid
+	call	dual_cursor_slot_partition
+	ld	c,a
+	ld	hl,DUAL_SELECTED_SD1
+	ld	a,b
+	cp	1
+	jr	z,.target_ready
+	ld	hl,DUAL_SELECTED_SD2
+.target_ready
+	ld	a,b
+	ld	(DUAL_MARKER_SLOT),a
+	ld	a,(hl)
+	ld	(DUAL_MARKER_OLD),a
+	ld	a,c
+	cp	(hl)
+	jr	nz,.store
+	xor	a			;ENTER na stejne volbe ji zrusi
+.store
+	ld	(hl),a
+	ld	(DUAL_MARKER_NEW),a
+	call	dual_update_one_marker
+	jp	dual_draw_cursor
+.invalid
+	ret				;cervena polozka se pouze ignoruje
+
+dual_draw_all_markers
+	ld	d,13
+	ld	e,8
+	call	dual_clear_marker_rows
+
+	ld	a,(DUAL_SELECTED_SD1)
+	or	a
+	jr	z,.both_sd2
+	add	a,12			;P1 -> radek 13
+	call	dual_draw_selected_marker
+.both_sd2
+	ld	a,(DUAL_SELECTED_SD2)
+	or	a
+	ret	z
+	add	a,16			;P1 -> radek 17
+	jp	dual_draw_selected_marker
+
+dual_clear_marker_rows
+.loop
+	push	de
+	xor	a			;T42_ATT=0 zachova puvodni barvu partition radku
+	ld	(T42_ATT),a
+	ld	a,d
+	ld	e,' '
+	call	dual_draw_marker_char
+	pop	de
+	inc	d
+	dec	e
+	jr	nz,.loop
+	ret
+
+; Pri zmene SD2 se SD1 marker uz nemaze a znovu nekresli.
+dual_update_one_marker
+	ld	a,(DUAL_MARKER_OLD)
+	or	a
+	jr	z,.draw_new
+	ld	b,a
+	ld	a,(DUAL_MARKER_SLOT)
+	ld	c,a
+	ld	a,b
+	ld	b,c
+	ld	e,' '
+	call	dual_draw_marker_for_slot
+.draw_new
+	ld	a,(DUAL_MARKER_NEW)
+	or	a
+	ret	z
+	ld	b,a
+	ld	a,(DUAL_MARKER_SLOT)
+	ld	c,a
+	ld	a,b
+	ld	b,c
+	ld	e,'*'
+	jp	dual_draw_marker_for_slot
+
+; A=partition 1..4, B=slot 1/2, E=znak.
+dual_draw_marker_for_slot
+	push	af
+	ld	a,e
+	cp	'*'
+	ld	a,0
+	jr	nz,.marker_attr_ready
+	ld	a,69
+.marker_attr_ready
+	ld	(T42_ATT),a
+	pop	af
+	ld	c,a
+	ld	a,b
+	cp	1
+	ld	a,c
+	jr	z,.both_sd1
+	add	a,16			;SD2: P1 na radku 17
+	jr	dual_draw_marker_char
+.both_sd1
+	add	a,12			;SD1: P1 na radku 13
+	jr	dual_draw_marker_char
+
+dual_draw_selected_marker
+	push	af
+	ld	a,69			;modry marker na pravem konci partition radku
+	ld	(T42_ATT),a
+	pop	af
+	ld	e,'*'
+dual_draw_marker_char
+	ld	b,a
+	ld	c,39			;vlevo by marker sdilel atribut s F a rameckem
+	ld	a,e
+	push	bc
+	call	T42
+	pop	bc
+	ret
+
+dual_temporary_message
+	push	hl
+	call	dual_clear_status
+	pop	hl
+	ld	bc,#1602
+	call	T42_TEXT
+	call	ANYKEY
+	call	dual_clear_status
+	ld	hl,TEXT_DUAL_STAGE3
+	ld	bc,#1602
+	call	T42_TEXT
+	xor	a
+	ret
+
+dual_clear_status
+	ld	hl,TEXT_CLR
+	ld	bc,#1602
+	jp	T42_TEXT
+
+; OUT: A=1 potvrzeno, A=0 chybi vyber.
+dual_confirm_selection
+	ld	a,(DUAL_SELECTED_SD1)
+	ld	hl,DUAL_SELECTED_SD2
+	or	(hl)
+	jr	nz,.has_selection
+	ld	hl,TEXT_DUAL_SELECT_ONE
+	call	dual_temporary_message
+	xor	a
+	ret
+
+.has_selection
+	call	dual_undraw_cursor
+
+	xor	a
+	ld	(DUAL_PARTITION_SD1),a
+	ld	(DUAL_PARTITION_SD2),a
+	ld	a,(DUAL_SELECTED_SD1)
+	or	a
+	jr	z,.save_sd2
+	ld	(DUAL_PARTITION_SD1),a
+	ld	de,DUAL_LBA_SD1
+	call	save_selected_lba
+.save_sd2
+	ld	a,(DUAL_SELECTED_SD2)
+	or	a
+	jr	z,.show_result
+	ld	(DUAL_PARTITION_SD2),a
+	add	a,4
+	ld	de,DUAL_LBA_SD2
+	call	save_selected_lba
+
+.show_result
+	call	dual_clear_status
+	ld	hl,TEXT_DUAL_SELECTED
+	ld	bc,#1602
+	call	T42_TEXT
+	ld	a,(DUAL_SELECTED_SD1)
+	or	a
+	jr	z,.result_sd2
+	ld	hl,TEXT_DUAL_SELECTED_SD1
+	ld	bc,#160B
+	call	T42_TEXT
+	ld	a,(DUAL_SELECTED_SD1)
+	ld	h,0
+	ld	l,a
+	call	NUMBER0
+.result_sd2
+	ld	a,(DUAL_SELECTED_SD2)
+	or	a
+	jr	z,.result_wait
+	ld	hl,TEXT_DUAL_SELECTED_SD2
+	ld	bc,#1612
+	call	T42_TEXT
+	ld	a,(DUAL_SELECTED_SD2)
+	ld	h,0
+	ld	l,a
+	call	NUMBER0
+.result_wait
+	ld	hl,TEXT_DUAL_RESULT_KEY
+	ld	bc,#1619
+	call	T42_TEXT
+	call	ANYKEY
+	ld	a,1
+	ret
+
+DUAL_DRAW_SLOT	db 0
+DUAL_DRAW_ROW	db 0
+DUAL_MARKER_SLOT db 0
+DUAL_MARKER_OLD	db 0
+DUAL_MARKER_NEW	db 0
+
+; B=textovy radek prave dokoncene partition. VDT_pointer uz ukazuje na
+; dalsi zaznam, proto testujeme info bajt na adrese pointer-32.
+; Obarvujeme jen 30 vnitrnich atributu; oba zlute boky ramu zustanou.
+color_dual_partition_row
+	push	af
+	push	bc
+	push	de
+	push	hl
+	ld	hl,(VDT_pointer+1)
+	ld	de,-32
+	add	hl,de
+	ld	a,2			;normalni cervena = prazdna/neplatna partition
+	bit	1,(hl)
+	jr	z,.color_ready
+	ld	a,69			;modra = platna partition
+.color_ready
+	push	af
+	ld	a,b
+	ld	hl,#5801
+	ld	de,32
+.seek_row
+	add	hl,de
+	dec	a
+	jr	nz,.seek_row
+	pop	af
+	ld	b,30
+.fill
+	ld	(hl),a
+	inc	hl
+	djnz	.fill
+	pop	hl
+	pop	de
+	pop	bc
+	pop	af
+	ret
+	ENDIF
 ;user menu
 ;priprava k menu, rutina IINKEY vraci v A kod klavesy, #B=nahoru, #A=dolu
 ;definice
@@ -2573,7 +3692,11 @@ iik		call	KEYSCAN
 		cp	13
 		jr	z,key_enter
 		cp	7
+	IFDEF DUAL_GUI_TEST
+		jp	z,end_easy		;test build je kvuli pomocnym rutinam delsi
+	ELSE
 		jr	z,end_easy		;EDIT pressed, end EasySD
+	ENDIF
 		jr	iik
 
 key_up		ld	hl,wind_curs_item
@@ -2630,14 +3753,20 @@ dc_2		ld	(hl),a
 		ret
 */
 ;------------------------------
+	IFDEF	DUAL_GUI_TEST
+TEXT1	dc	16,70,"EasySD 1.1 - MB03+"
+	ELSE
 	IFDEF	ELEMENT
 TEXT1	dc	16,70,"EasySD 1.0-eLeMeNtZX"
 	ELSE
 TEXT1	dc	16,70,"EasySD 1.0 - MB03+"
 	ENDIF
+	ENDIF
 TEXT2	dc	16,3,127," MB03+ team 2026"
 ;TEXT3	dc	16,70,"MASTER DISK:"
 TEXT3	dc	16,70,"SDcard:"
+TEXT_SD1	dc	16,70,"SD1 card:"
+TEXT_SD2	dc	16,70,"SD2 card:"
 ;TEXT4	dc	16,70,"Model:"
 TEXT4	dc	16,70,"ProductRevisionNr.:"
 ;TEXT5	dc	16,70,"Firmware:"
@@ -2649,6 +3778,26 @@ TEXT7	dc	16,70,"ReadBlLen:       SDcard size: "
 ;TEXT8	dc	16,70,"SLAVE DISK:"
 TEXT8	dc	16,66,"checking..."
 TEXT_SD_NOT_FOUND	dc	16,66,"Not Found  "	; 11 znaku = prepise cele "checking..."
+	IFDEF DUAL_GUI_TEST
+TEXT_DUAL_SD1_CARD	dc	16,70,"SD1: "
+TEXT_DUAL_SD2_CARD	dc	16,70,"SD2: "
+TEXT_DUAL_REV		dc	16,70,"Rev:"
+TEXT_DUAL_SN		dc	16,70,"SN:"
+TEXT_DUAL_CSD		dc	16,70,"CSD:"
+TEXT_DUAL_DATE		dc	16,70,"Date:"
+TEXT_DUAL_RBL		dc	16,70,"RBL:"
+TEXT_DUAL_SIZE		dc	16,70,"Size:"
+TEXT_DUAL_NOT_INSERTED dc	16,66,"not inserted"
+TEXT_DUAL_NO_CARDS	dc	16,2,"No card"
+TEXT_DUAL_STAGE3	dc	16,67,"UP/DOWN ENTER SPACE=go EDIT=exit"
+TEXT_DUAL_SELECT_ONE	dc	16,66,"Select at least one partition"
+TEXT_DUAL_SELECTED	dc	16,67,"Selected:"
+TEXT_DUAL_SELECTED_SD1 dc	16,67,"SD1:P"
+TEXT_DUAL_SELECTED_SD2 dc	16,67,"SD2:P"
+TEXT_DUAL_RESULT_KEY	dc	16,67,"press key"
+TEXT_EASYCF_REQUIRED	dc	16,66,"EasyCF required, press a key"
+TEXT_BAD_SD_PAGE	dc	16,66,"SD page must be 6-32, press a key"
+	ENDIF
 TEXT9	db	"Total LBA 48 bi"
 	dc	"t sec.:"
 TEXT10	db	"Start cloning ("
@@ -2660,13 +3809,15 @@ TEXT14	dc	16,66,"Drive not ready"
 TEXT15	dc	16,66,"Other error    "
 TEXT16	db	16,69,"OK             "
 	dc	"     "
+	IFNDEF DUAL_GUI_TEST
 TEXT17	dc	16,70,"DMA Speed:"
 TEXT18	db	16,70,"Port: "
 	db	16,69
 	dc	"3T"
 TEXT19	db	16,70,"Memory: "
 	db	16,69
-	dc	"3T" 
+	dc	"3T"
+	ENDIF
 ;/*
 ;TEXT17	db	"Read errors:   "
 ;	dc	"    "
@@ -3899,6 +5050,7 @@ BUFFER	;equ	25000
 	block	512
 BUFFER2	;equ	38000
 	block	512
+	IFNDEF DUAL_GUI_TEST
 zvukplay
 	ld	c,a
 	ld	a,(@playnoise)
@@ -3922,6 +5074,7 @@ zvukpause
 	pop	bc
 	djnz	zvukloop
 	ret
+	ENDIF
 
 ;------------------------------------------------------------------------------
 ; Matematicke rutiny - fyzicka kopie pro GUI (MODULE GUI)

@@ -78,8 +78,21 @@
 		include "sd_macros.a80"
 
 
-		org	32768
+	org	32768
 START
+	IFDEF DUAL_GUI_INSTALL_TEST
+	IFNDEF ELEMENT
+; Kompatibilni EasyCF over jeste pred vstupem do GUI a pred prvnim
+; pristupem k SD kartam. Pri chybe pouze vykresli prazdny ramec a skonci.
+		di
+		call	MAIN.CHECK_EASYCF_11
+		jr	z,.easycf_ready
+		call	GUI.draw_dual_error_overview
+		ld	hl,GUI.TEXT_EASYCF_REQUIRED
+		jp	MAIN.INSTALL_ERROR
+.easycf_ready
+	ENDIF
+	ENDIF
 		call	GUI.gui
 		jp	MAIN.INSTALL
 
@@ -88,13 +101,29 @@ START
 @autoinstall	db	0		;auto install (/wait for any key)
 @autoconfig	db	1		;1=auto configure (automatic search for first sector & set hdd parameters to VDT)
 ;new parameter for EasySD. If set to 0, selection will be done manually.
-@partition	db	4		;if @autoconfi=1, use values 1-4 (for SD1), 5-8 (for SD2), use partition. If not usable, use the first available from start
+@partition	db	4		;if @autoconfi=1, use values 1-4 (for SD0), 5-8 (for SD1), use partition. If not usable, use the first available from start
+; EasySD 1.1: nezavisla preferovana fyzicka partition pro kazdy SD slot.
+; Hodnota 1-4; neni-li pouzitelna, vybere se prvni platna na stejne karte.
+@dual_partition_sd1	db	1
+@dual_partition_sd2	db	1
 @showsplash	db	0		;show splash screen
 @playnoise	db	0		;playnoise
 		db	1		;show gui
 @noverify 	db	0		;disable write verify
 ;@dmar3		db	1		;install dma patch (oprava hodnoty dma registru R3)
 @dmar3		db	0		;install dma patch (oprava hodnoty dma registru R3)	pro ucely SD vypiname DMA
+
+; EasySD/EasyCF 1.1 - sdilena konfigurace SRAM stran pro MB03+.
+; ACTIVE_PAGE je instalacni kopie. Za behu BSDOSu je aktivni stranka
+; ulozena jako operand instrukce na DOS_ACTIVE_PAGE (#001C v page 97).
+PAGE_BSDOS		equ	97
+PAGE_CF			equ	98		;pevna zapisova hodnota pro fyzickou stranku 2
+PAGE_WRITE_BASE		equ	96
+PAGE_SD_MIN		equ	6		;0=BSROM, 1=BSDOS, 2=CF, 3-5=NMI
+PAGE_SD_MAX		equ	32
+PAGE_SD			db	9		;konfigurovatelne fyzicke cislo stranky 6-32
+ACTIVE_DEVICE		db	1		;0=CF, 1=SD1, 2=SD2
+ACTIVE_PAGE		db	0		;zapisova hodnota PAGE_WRITE_BASE+PAGE_SD
 
 
 	IFDEF ELEMENT
@@ -103,8 +132,7 @@ START
 ; On MB03+ the eLeMeNt ID is not present, so this routine
 ; returns without changing anything.
 ; eLeMeNt ZXi ports: #783B = register select, #793B = data.
-; e_zxi_0FF: upper nibble #E identifies the eLeMeNt family.
-; Lower nibble may change on future eLeMeNt revisions.
+; e_zxi_0FF returns #E1 on eLeMeNt ZX.
 ; e_zxi_001 = #02 selects DivSD + MB02+.
 EL_MB02_INIT
 		push	af
@@ -115,8 +143,7 @@ EL_MB02_INIT
 		out	(c),a
 		ld	bc,#793B
 		in	a,(c)
-		and	#F0
-		cp	#E0
+		cp	#E1
 		jr	nz,.done
 
 		ld	bc,#783B
@@ -154,6 +181,9 @@ VDTLEN		equ	256
 HDD_MAIN_START		equ	#0090		;zacatek hlavniho EasySD driveru v HDD bance
 PIT_START		equ	#0383		;odtud zacina oblast prepisovana PIT patchem
 SD_ROUTINES_START	equ	#F00		;SD routines start here- due to collision with PIT103 patch
+SD1_LBA_STORE		equ	#3C90		;4B LBA vybrane partition SD1 v page 105
+SD2_LBA_STORE		equ	#3C94		;4B LBA vybrane partition SD2 v page 105
+	ASSERT	SD2_LBA_STORE+4 <= #3D00
 
 ;porty HOOD
 P_DAT		equ	195		;8'b110xx011
@@ -203,6 +233,34 @@ INSTALL		di
 		call	EL_MB02_INIT
 	ENDIF
 
+; Uzivatelska konfigurace pouziva fyzicke cislo 6-32. Pro port 23
+; z nej vytvor zapisovou hodnotu prictenim PAGE_WRITE_BASE (=96).
+		ld	a,(PAGE_SD)
+		cp	PAGE_SD_MIN
+		jr	c,.bad_sd_page
+		cp	PAGE_SD_MAX+1
+		jr	nc,.bad_sd_page
+		add	a,PAGE_WRITE_BASE
+		ld	(ACTIVE_PAGE),a
+		jr	.sd_page_ready
+.bad_sd_page
+		ld	hl,GUI.TEXT_BAD_SD_PAGE
+		jp	INSTALL_ERROR
+.sd_page_ready
+
+; Je-li zvolena SD1, zacneme na ni. Pokud uzivatel vybral pouze SD2,
+; aktivujeme po instalaci rovnou druhy slot.
+		ld	a,(GUI.DUAL_PARTITION_SD1)
+		or	a
+		ld	a,1
+		jr	nz,.initial_device_ready
+		inc	a
+.initial_device_ready
+		ld	(ACTIVE_DEVICE),a
+
+; Tato mezifaze instaluje a aktivuje SD driver na ACTIVE_PAGE. CF driver na
+; page 98 tim zustava nedotceny a lze se k nemu vratit zmenou #001C na 98.
+
 ;;presun fontu do HDD banky
 		ld	hl,15616
 		ld	de,endfile
@@ -220,7 +278,7 @@ INSTALL		di
 	push bc
 	ldir		;end ver 1.18
 
-	ld a,97
+	ld a,PAGE_BSDOS
 	out (23),a	
 
 	pop bc		;ver 1.18
@@ -246,20 +304,67 @@ INSTALL		di
 		ld	(#0233),hl
 ; ███████████████ end - MB03+ only ███████████████████████████████████████		
 		
-		ld	hl,ADR20
-		ld	de,20
-		ld	bc,12
+		ld	hl,DOS_DRIVER_ENTRY_SRC
+		ld	de,27			;#001B
+		ld	bc,DOS_DRIVER_ENTRY_LEN
 		ldir
 
-		ld	hl,ADR35
-		ld	de,35
-		ld	c,5
+		ld	hl,DOS_BANK_HELPERS
+		ld	de,DOS_BANK_HELPERS_START
+		ld	bc,DOS_BANK_HELPERS_LEN
 		ldir
 
-         ld   hl,ADR43		;ver 1.07, Hood
-         ld   de,#2B
-         ld   c,3
-         ldir			;end 1.07
+; Jediny runtime stav dispatcheru: operand LD A,n na page 97:#001C.
+		ld	a,(ACTIVE_PAGE)
+		ld	(DOS_ACTIVE_PAGE),a
+		ld	a,(ACTIVE_DEVICE)
+		ld	(DOS_ACTIVE_DEVICE),a
+		ld	a,(ACTIVE_PAGE)
+		ld	(DOS_PAGE_SD),a
+
+; Zapamatuj si tri fyzicka cisla partition pro katalogovy text.
+; SD1/SD2 jsou v poslednich dvou volnych bajtech pred PIT oblasti.
+; CF pouziva samostatny bajt #3C90 v BSDOS page 97. Stejna adresa
+; SD1_LBA_STORE patri do jine fyzicke stranky, proto se neprekryvaji.
+		ld	a,(GUI.DUAL_PARTITION_SD1)
+		ld	(DOS_SD1_PARTITION),a
+		ld	a,(GUI.DUAL_PARTITION_SD2)
+		ld	(DOS_SD2_PARTITION),a
+
+		ld	a,(#DC8)			; stary EasyCF: cislice P1-P4 uvnitr textu
+		sub	'0'
+		cp	1
+		jr	c,.cf_try_saved
+		cp	5
+		jr	c,.cf_partition_ready
+.cf_try_saved
+		ld	a,(#22F6)		; migrace ze STAGE12
+		cp	1
+		jr	c,.cf_try_current
+		cp	5
+		jr	c,.cf_partition_ready
+.cf_try_current
+		ld	a,(#22FE)		; migrace z kratke testovaci STAGE15
+		cp	1
+		jr	c,.cf_try_legacy
+		cp	5
+		jr	c,.cf_partition_ready
+.cf_try_legacy
+		ld	a,(#22FC)		; migrace ze STAGE13-20
+		cp	1
+		jr	c,.cf_try_stage21
+		cp	5
+		jr	c,.cf_partition_ready
+.cf_try_stage21
+		ld	a,(DOS_CF_PARTITION)	; opakovana instalace STAGE21+
+		cp	1
+		jr	c,.cf_partition_default
+		cp	5
+		jr	c,.cf_partition_ready
+.cf_partition_default
+		ld	a,1
+.cf_partition_ready
+		ld	(DOS_CF_PARTITION),a
 
 ;		ld	hl,ADR43
 ;		ld	de,43
@@ -290,16 +395,35 @@ INSTALL		di
 	ld (fspldir1+1),de
 	ld (FREE_JP+1),de
 
-	ld hl,rp2	;preneseme patch dosu na zobrazovani statusu WP primo v katalogu disku, melo by fungovat i na diskety
-	ld de,#17c3
-	ld bc,3
+	; Kriticka BSDOS sekvence zustava cela presne puvodni. WP cache se
+	; zapisuje uz v driveru pri AKTIVE, bez hooku v teto vetvi.
+	ld	hl,wp_status_call
+	ld	de,#17C3
+	ld	bc,8
 	ldir
-	ld hl,reset_patch
-	ld de,#358
-	ld bc,19
+	ld	hl,wp_catalog_call
+	ld	de,#0DF8
+	ld	bc,3
+	ldir
+	ld	hl,wp_catalog_body
+	ld	de,#0358
+	ld	bc,WP_CATALOG_BODY_SIZE
+	ldir
+	ld	hl,wp_catalog_router
+	ld	de,WP_CATALOG_ROUTER_ADDR
+	ld	bc,WP_CATALOG_ROUTER_SIZE
 	ldir
 
-	jr fspldir
+	IFDEF SEARCH_RETURN_DIAG
+	; Docasna diagnostika pro realny MB03+: puvodni System Error #17D3
+	; nahradi cislem ACTIVE_PAGE*256+A, kde A=navrat AKTIVE pred testem.
+	ld	hl,search_diag_call
+	ld	de,#17D0
+	ld	bc,3
+	ldir
+	ENDIF
+
+	jp fspldir		;STAGE20 obsahuje kontrolu EasyCF a konfiguraci page
 new_r
 	disp #1cea
 nr	ld e,#01
@@ -337,25 +461,132 @@ form3	inc bc
 	nop
 	db #28,#ed ;jr z,form2	;end 1.13
 
-reset_patch		;ver 1.18
-	push af
-	xor a
-	rst #18
-	push af
-	bit 6,a
-	ld a,#1F
-	jr z,rp1	
-	ld a,#1D
-rp1	ld (#dc1),a
-	pop af
-	jp #17C6	
+; Cela puvodni sekvence #17C3-#17CA. Ani RST #18, ani jeho bezprostredni
+; navrat se nesmi premistit nebo prerusit skokem do pomocneho hooku.
+wp_status_call
+	push	af
+	xor	a
+	rst	#18
+	and	#40
+	jp	nz,#1DCB
 
-rp2	jp #358	;patch umistime hned za rutiny nmi menu do volneho mista
+; Nahrada puvodniho CALL #219E (SPACE) na #0DF8.
+wp_catalog_call
+	call	WP_CATALOG_ROUTER_ADDR
+
+; Osvědcena 19B rutina ze STAGE11 musi zustat na #0358. Presun RST #18
+; na #22DF ve STAGE12 zpusobil regresi .SEARCH s neprazdnym retezcem.
+wp_catalog_body
+	push	hl		; tiskova rutina potrebuje puvodni ukazatel
+	push	bc		; bios_reset pouziva B/C pri cteni statusu
+	xor	a
+	rst	#18
+	bit	6,a
+	ld	a,#20		; nezamceny disk: mezera
+	jr	z,.print
+	ld	a,#1D		; zamceny disk: uzivatelsky znak zamek
+.print	pop	bc
+	pop	hl
+	jp	#21A0		; preskoc LD A,#20, zachovej mezeru nebo zamek v A
+	block	19-($-wp_catalog_body),0
+WP_CATALOG_BODY_SIZE	equ $-wp_catalog_body
+	ASSERT	WP_CATALOG_BODY_SIZE = 19
+
+; #0DF8 se pouziva i pri tisku cisla adresare. Tato 10B rutina se pri
+; instalaci kopiruje do rezidentniho BSDOSu #22F6-#22FF, hned za
+; case_insen koncicim na #22F5. LOAD ji proto nemuze prepsat.
+wp_catalog_router
+	ld	a,ixh
+	cp	#23
+	jp	nz,#219E	;adresar/jiny text: puvodni LD A,#20
+	jp	#0358		;cislo disku: osvedcena WP rutina STAGE11
+WP_CATALOG_ROUTER_SIZE	equ $-wp_catalog_router
+	ASSERT	WP_CATALOG_ROUTER_SIZE = 10
+	ASSERT	WP_CATALOG_ROUTER_ADDR+WP_CATALOG_ROUTER_SIZE = #2300
+
+	IFDEF SEARCH_RETURN_DIAG
+search_diag_call
+	call	nz,search_diag_hook
+
+; Hook zustava v chranene casti instalatoru nad #8000 (loader pouziva
+; CLEAR 32767). V BSDOSu se tedy s nicim neprekryva, zejmena ne se
+; znakem zamku na #3CE8-#3CEF.
+search_diag_hook
+	pop	hl		;odstran puvodni navrat #17D3
+	add	a,2		;L = hodnota obnovena po WP kontrole
+	ld	l,a
+	ld	a,(search_diag_before_wp)
+	ld	h,a		;H = hodnota pred WP kontrolou (po prvnim DEC)
+	push	hl		;#2264 jej vytiskne misto adresy chyby
+	jp	#2264
+search_diag_before_wp
+	db	0
+SEARCH_DIAG_HOOK_SIZE	equ $-search_diag_hook
+	ASSERT	SEARCH_DIAG_HOOK_SIZE = 13
+	ENDIF
 
 ;definice znaku zamek
 zamek	defb 0,60,36,126,110,102,126,0		;end 1.18
-new_cat_text
-        defb    "S1:P0 BSD 308"
+
+CAT_DEVICE	equ	#0DC1
+CAT_PARTITION	equ	#0DDF
+
+; Over kompatibilni EasyCF v pevne strance 98. Jeho bankovni vstup
+; #001B-#0020 musi po prepnuti do BSDOS page 97 pokracovat JR #0090.
+; OUT ani LD nemeni priznaky, proto rutina vraci Z=kompatibilni.
+CHECK_EASYCF_11
+	ld	a,PAGE_CF
+	out	(23),a
+	ld	hl,#0008
+	ld	de,EASYCF_ID
+	ld	b,EASYCF_ID_LEN
+	call	.compare
+	jr	nz,.bad
+	ld	hl,#001B
+	ld	de,EASYCF_11_SIGNATURE
+	ld	b,EASYCF_11_SIGNATURE_LEN
+	call	.compare
+	jr	nz,.bad
+	xor	a
+	jr	.restore
+.compare
+	ld	a,(de)
+	cp	(hl)
+	ret	nz
+	inc	hl
+	inc	de
+	djnz	.compare
+	ret
+.bad	or	1
+.restore
+	ld	a,#40
+	out	(23),a
+	ret
+
+EASYCF_11_SIGNATURE
+	db	#3E,#61,#D3,#17,#18,#6F
+EASYCF_11_SIGNATURE_LEN	equ	$-EASYCF_11_SIGNATURE
+EASYCF_ID
+	db	"EasyCF10"
+EASYCF_ID_LEN	equ	$-EASYCF_ID
+INSTALL_SIGNATURE_DATA
+	db	"ES11"
+
+; HL ukazuje na barevny text chyby. BSDOS ani driver se jeste nezmenil,
+; takze lze bezpecne skoncit zpet do BASICu.
+INSTALL_ERROR
+	ld	a,#40
+	out	(23),a
+	ei
+	push	hl
+	ld	hl,GUI.TEXT_CLR
+	ld	bc,#1602
+	call	GUI.T42_TEXT
+	pop	hl
+	ld	bc,#1602
+	call	GUI.T42_TEXT
+	call	GUI.ANYKEY
+	ret
 
 
 
@@ -432,30 +663,36 @@ dmano
 		ld	bc,112
 		ldir
 
-;pridavame do katalogu disku text S1 a cislo partisny P1-P4
-; BS-DOS 308 ** BUSY SOFT'96
-; BS-DOS 308b * BUSY SOFT'19
-; S1:P4 BSD 308 BUSY SOFT'96
-; S1:P4 BSD 308bBUSY SOFT'19
+; Pevna pole v puvodnim hornim radku katalogu:
+; #DC1-#DC2 = S1/S2/CF, #DDF-#DE0 = P1-P4.
+		; Nejprve obnov cely puvodni 32znakovy radek. Tim zmizi stare
+		; CF/P3 vlozene drive do prostredniho textu starsim EasyCF.
+		ld	hl,CATALOG_HEADER_TEMPLATE
+		ld	de,CAT_DEVICE
+		ld	bc,32
+		ldir
 
-        ld      a,(#DCE)               ; mezera nebo 'b'
-        ld      (#DD1),a               ; za nove "308"
+		ld	a,(ACTIVE_DEVICE)
+		cp	2
+		ld	hl,#3153		; v pameti "S1"
+		ld	de,GUI.DUAL_PARTITION_SD1
+		jr	nz,.catalog_device_ready
+		ld	hl,#3253		; v pameti "S2"
+		ld	de,GUI.DUAL_PARTITION_SD2
+.catalog_device_ready
+		ld	(CAT_DEVICE),hl
+		ld	a,(de)
+		add	a,'0'
+		ld	h,a
+		ld	l,'P'
+		ld	(CAT_PARTITION),hl
 
-        ld      hl,new_cat_text
-        ld      de,#DC4
-        ld      bc,13
-        ldir
-
-        ld      a,(@partition)
-        add     a,'0'
-        ld      (#DC8),a               ; P1-P4
-
-		ld	a,98
+		ld	a,(ACTIVE_PAGE)
 		out	(23),a
 
 		ld	hl,ADR16
 		ld	de,0
-		ld	bc,33+8+6	;ver 1.07, end 1.07
+		ld	bc,ADR16_LEN
 ;bez inir
 		ldir
 
@@ -481,34 +718,40 @@ dmano
 		ldir
 
 
-		ld	a,(@partition)		;umistime vybrany 1. sektor do rutiny TST_DRV
-		dec	a			;zatim jen podle zaznamu v autoconfigu, ale chce to inteligentnejsi vyber
+		pop	de			;vyrovnej PUSH pred kopii VDT
 
-		ld	l,a
-		ld	h,0
+; Uloz obe nezavisla LBA do volne oblasti driverove page 105.
+		ld	hl,GUI.DUAL_LBA_SD1
+		ld	de,SD1_LBA_STORE
+		ld	bc,4
+		ldir
+		ld	hl,GUI.DUAL_LBA_SD2
+		ld	de,SD2_LBA_STORE
+		ld	bc,4
+		ldir
 
-    		add     hl,hl            ; *2
-        	add     hl,hl            ; *4
-	        add     hl,hl            ; *8
-        	add     hl,hl            ; *16
-	        add     hl,hl            ; *32
-
-		pop	de
-        	add     hl,de            ; HL = adresa vybraneho 32B zaznamu
-		inc	hl		;jsme na LBA sektoru
-
-        ld      c,(hl)          ; LBA byte 0
-        inc     hl
-        ld      b,(hl)          ; LBA byte 1
-        inc     hl
-
-        ld      (current_1st_sector+1),bc
-
-        ld      c,(hl)          ; LBA byte 2
-        inc     hl
-        ld      b,(hl)          ; LBA byte 3
-
-        ld      (current_1st_sector+4),bc	;ulozili jsme vybrane LBA primo do rutiny TST_DRV
+; Nastav LBA a fyzicky slot prvniho aktivniho SD zarizeni.
+		ld	a,(ACTIVE_DEVICE)
+		cp	2
+		ld	hl,GUI.DUAL_LBA_SD1
+		ld	a,#FE
+		jr	nz,.initial_sd_ready
+		ld	hl,GUI.DUAL_LBA_SD2
+		ld	a,#FD
+.initial_sd_ready
+		ld	(SDroutines.card_select),a
+		ld	e,(hl)
+		inc	hl
+		ld	d,(hl)
+		ex	de,hl
+		ld	(current_1st_sector+1),hl
+	ex	de,hl
+		inc	hl
+		ld	e,(hl)
+		inc	hl
+		ld	d,(hl)
+		ex	de,hl
+		ld	(current_1st_sector+4),hl
 
 		
 ;mezera na PIT103
@@ -522,44 +765,38 @@ dmano
 
 ;------------------------------------------------------------
 ; Vystup z EasySD
+; ELEMENT: korektni start BSDOSu pres systemovou sluzbu #30.
+;          Pokud AUTOSYS neni nalezen / vrati se, provedeme
+;          velky 128K reset pres BSROM (BusySoft).
+; MB03+:   puvodni zpusob ukonceni zustava beze zmeny.
 ;
-; eLeMeNt / MB03+ Slim:
-;   spusteni BSDOSu pres systemovou sluzbu #30.
-;   BSROM a BSDOS jsou jiz zavedeny bootstrapem.
-;
-; MB03+ Ultimate:
-;   puvodni zpusob ukonceni zustava beze zmeny.
+; Pri buildu pro eLeMeNt definuj symbol ELEMENT.
+	IFDEF ELEMENT
+		ld	a,PAGE_BSDOS	; BSDOS banka 1, zapis povolen
+		out	(23),a
+		ld	a,1		; aktualni BSDOS disk @1
+		ld	(#03EE),a
+		ld	a,#30		; BSDOS service #30 START
+		rst	#20		; pokud se AUTOSYS nenajde, sluzba se vrati
+		call	GUI.AUTOSYS_NOT_FOUND
+		call	#3C98		; prepne na BSROM + zakaz zapisu
+		xor	a
+		jp	#3978		; velky 128K reset (BSROM 1.18/1.40)
+	ELSE
+		; Podpis zapis az po uspesnem dokonceni vsech BSDOS i SD patchu.
+		; #3C90 obsahuje CF partition, #3C91-#3C94 jsou data Stage23+.
+		ld	a,PAGE_BSDOS
+		out	(23),a
+		ld	hl,INSTALL_SIGNATURE_DATA
+		ld	de,DOS_INSTALL_SIGNATURE
+		ld	bc,DOS_INSTALL_SIGNATURE_LEN
+		ldir
+		ld	a,%01000000
+		out	(23),a
+		ei
+		ret
+	ENDIF
 
-        IFDEF ELEMENT
-                ld      a,97            ; BSDOS banka 1, zapis povolen
-                out     (23),a
-                ld      a,1             ; aktualni BSDOS disk @1
-                ld      (#03EE),a
-                ld      a,#30           ; BSDOS service #30 START
-                rst     #20
-                call    GUI.AUTOSYS_NOT_FOUND
-                call    #3C98
-                xor     a
-                jp      #3978
-        ELSE
-                IFDEF SLIM
-                        ld      a,97     ; BSDOS banka 1, zapis povolen
-                        out     (23),a
-                        ld      a,1      ; aktualni BSDOS disk @1
-                        ld      (#03EE),a
-                        ld      a,#30    ; BSDOS service #30 START
-                        rst     #20
-                        call    GUI.AUTOSYS_NOT_FOUND
-                        call    #3C98
-                        xor     a
-                        jp      #3978
-                ELSE
-                        ld      a,%01000000
-                        out     (23),a
-                        ei
-                        ret
-                ENDIF
-        ENDIF
 ;------------------------------
 ;------------------------------
 ADR442
@@ -588,36 +825,51 @@ ADR62
 		ret	nc
 		jp	#1463
 
+CATALOG_HEADER_TEMPLATE
+	db	"S1 BS-DOS 308b * BUSY SOFT'19 P1"
+	ASSERT	$-CATALOG_HEADER_TEMPLATE = 32
+
 ;------------------------------
 ;------------------------------
 
-;adresa 20 v dos_bnk
-;hdd_bnk musi byt dos_bnk+1
-
-ADR20
-		ld	(hl),b		;zapis bajtu do dos_bnk
-		inc	a		;to by se melo taky hodit jinam
+; adresa 27 (#001B) - spolecny vstup do aktivniho driveru
+DOS_DRIVER_ENTRY_SRC
+		ld	a,0		;operand na #001C instalator prepise ACTIVE_PAGE
 		out	(23),a
-		jp	144
+DOS_ACTIVE_PAGE	equ	#001C
+		ret			;page 97: RET, driver page: JR #0090
+DOS_DRIVER_ENTRY_END
+DOS_DRIVER_ENTRY_LEN	equ	DOS_DRIVER_ENTRY_END-DOS_DRIVER_ENTRY_SRC
 
-;adresa 27
-		ld	a,98		;prestrankovani do patch_bnk
-		out	(23),a
-		ret
+DOS_ACTIVE_DEVICE	equ	#0032
+DOS_PAGE_SD		equ	#0033
+DOS_SD1_PARTITION	equ	#0034
+DOS_SD2_PARTITION	equ	#0035
+WP_CATALOG_ROUTER_ADDR	equ	#22F6
+DOS_CF_PARTITION	equ	#3C90
+DOS_INSTALL_SIGNATURE	equ	#3C91
+DOS_INSTALL_SIGNATURE_LEN equ	4
+DRIVER_DMA_SWITCH	equ	#0367
 
 ;------------------------------
 ;------------------------------
 
-;adresa 35 v dos_bnk
-
-ADR35
-		out	(c),b		;start dma prenosu a prestrankovani z5
-		inc	a
-		out	(23),a
-
-ADR43			;ver.1.07, vycteni bajtu z DOSu z adresy HL do B, Hood
-	ld b,(hl)
-	db 24, 247	;jr #25, bajt mas v B, skoc zpet do hdd banky na ADR35, instrukci inc a, end 1.07
+; Pomocne rutiny hned za NMI #0340-#0357 a reset patchem #0358-#036A.
+DOS_BANK_HELPERS_START	equ	#036B
+DOS_BANK_HELPERS
+		out	(c),b		;#036B: start DMA
+		ld	a,(DOS_ACTIVE_PAGE)
+		out	(23),a		;dalsi opcode: driver RET #0372
+		ld	(hl),b		;#0372: zapis bajtu do BSDOS page
+		ld	a,(DOS_ACTIVE_PAGE)
+		out	(23),a		;dalsi opcode: driver RET #0378
+		ld	b,(hl)		;#0378: vycteni bajtu z BSDOS page
+		ld	a,(DOS_ACTIVE_PAGE)
+		out	(23),a		;dalsi opcode: driver RET #037E
+DOS_BANK_HELPERS_END
+DOS_BANK_HELPERS_LEN	equ	DOS_BANK_HELPERS_END-DOS_BANK_HELPERS
+		ASSERT	DOS_BANK_HELPERS_START+DOS_BANK_HELPERS_LEN = #037E
+		ASSERT	DOS_SD2_PARTITION+1 = #0036
 
 ;------------------------------
 ;------------------------------
@@ -648,32 +900,24 @@ ADR16
 		db	"EasySD10"
 ;		db	"HddEH207"
 
-		ld	a,97
-		out	(23),a
-		ld	(hl),b
-		inc	a
-		out	(23),a
-		ret
-		nop
-		nop
+		jp	DRIVER_WRITE_SWITCH	;#0010
+		block	#001B-#0013,0
 
-;adr27 - route to hdd_bnk
-		ld	a,97
+; #001B: navrat do BSDOS page. Pri vstupu z BSDOSu se misto JR vykona
+; kod page 97 a prepne na aktivni driverovou stranku.
+		ld	a,PAGE_BSDOS
 		out	(23),a
-		db	24,111		;jr	144
+		db	#18,#6F		;#001F: JR #0090
 
-;adr33 - route to otir
-;musi byt ld  a,97
-;a taky ld bc,data_port
-		out	(23),a
-		out	(c),a
-		inc	a
-		out	(23),a
-		ret
+; #0021: zachovany vstup OTIR.
+		jp	DRIVER_DMA_SWITCH
+		block	#002B-#0024,0
 
-v1      out (23),a	;ver 1.07, vycteni bajtu z DOSu z adresy v HL do B, Hood
-vycti   ld a,97		;ADR43rutina bude vypadat: ld hl,adresa:call vycti: B=vycteny bajt
-         db 24, 250	;jr v1;skok na v1;end 1.07
+; #002B: vycteni bajtu z BSDOS page 97 do B (CALL 43).
+		jp	DRIVER_READ_SWITCH
+
+ADR16_END
+ADR16_LEN	equ	ADR16_END-ADR16
          
 
 ;adr41
@@ -1396,7 +1640,7 @@ RD_512
 ;		ld	bc,14*256+DMA
 		ld	bc,((DMA_INEND-DMA_IN)*256)+DMA
 		otir
-		ld	a,97
+		ld	a,PAGE_BSDOS
 		ld	b,#87
 		call	OTIR
 ; start DMA transfer
@@ -1432,9 +1676,9 @@ WR_512
 		push	hl
 		ld	hl,DMA_OUT
 		ld	bc,((DMA_OUTEND-DMA_OUT)*256)+DMA
-		ld	a,97
+		ld	a,PAGE_BSDOS
 		otir
-		ld	a,97
+		ld	a,PAGE_BSDOS
 		ld	b,#87
 		call	OTIR
 		pop	hl
@@ -1564,6 +1808,8 @@ TST_DRV
 current_1st_sector			;dulezite, tady je aktualne vybrana partisna/1 datovy sektor
 		ld	hl,#5555	;nizsi LBA
 		ld	de,#5555	;vyssi LBA
+		ASSERT	current_1st_sector+1 = #02AB
+		ASSERT	current_1st_sector+4 = #02AE
 
 		call	ADD32_32
 		ld	(LOW24+1),hl
@@ -1680,6 +1926,35 @@ SUB32_8:
 
 ADD32_32:
 	MATH_ADD32_32
+
+;------------------------------------------------------------------------------
+; Page-independent bank switching stubs (EasySD/EasyCF 1.1)
+;------------------------------------------------------------------------------
+; Po OUT se dalsi opcode nacita uz z nove stranky. Proto jsou pokracovani
+; v BSDOS page 97 a v kazde driver page na stejnych adresach.
+; Rozsah NMI #0340-#0357 zustava nedotceny.
+
+		block	#0367-$,0
+
+DRIVER_DMA_SWITCH_SRC		;#0367
+		ld	a,PAGE_BSDOS
+		out	(23),a
+
+		block	#036E-$,0
+
+DRIVER_WRITE_SWITCH		;#036E
+		ld	a,PAGE_BSDOS
+		out	(23),a
+		ret			;#0372 - navrat z DMA
+
+		block	#0374-$,0
+
+DRIVER_READ_SWITCH		;#0374
+		ld	a,PAGE_BSDOS
+		out	(23),a
+		ret			;#0378 - navrat ze zapisu
+		block	#037E-$,0
+		ret			;#037E - navrat ze cteni
 
 LEN_MAIN	equ	$-HDD_MAIN_START
 	ASSERT	HDD_MAIN_START+LEN_MAIN <= PIT_START

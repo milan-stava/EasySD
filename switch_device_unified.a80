@@ -1,0 +1,341 @@
+	DEVICE ZXSPECTRUM48
+	ORG #8000
+
+; Bezpecny spolecny prepinac EasySD/EasyCF 1.1 pro MB03+.
+; USR #8000=CF, #8003=SD1, #8007=SD2, #800B=aktivni system,
+; #800E=maska dostupnosti (bit 0=CF, bit 1=SD1, bit 2=SD2).
+; Prepinaci vstupy vraci BC=0 pri uspechu, BC=1 pri NOT DETECTED.
+
+PAGE_BSDOS		equ 97
+PAGE_CF			equ 98
+PAGE_SD_MIN_RAW		equ 102
+PAGE_SD_MAX_RAW		equ 128
+DOS_ACTIVE_PAGE		equ #001C
+DOS_ACTIVE_DEVICE	equ #0032
+DOS_PAGE_SD		equ #0033
+DOS_SD1_PARTITION	equ #0034
+DOS_SD2_PARTITION	equ #0035
+DOS_CF_PARTITION	equ #3C90
+DOS_INSTALL_SIGNATURE	equ #3C91
+DRIVER_LASTD		equ #00E3
+SD_CARD_SELECT		equ #0F12
+SD_SLOT_1		equ #FE
+SD_SLOT_2		equ #FD
+SD1_LBA_STORE		equ #3C90
+SD2_LBA_STORE		equ #3C94
+CURRENT_LBA_LOW		equ #02AB
+CAT_DEVICE		equ #0DC1
+CAT_PARTITION		equ #0DDF
+NORMAL_MAPPING		equ #40
+
+ENTRY_CF
+	xor	a
+	jr	switch_start
+ENTRY_SD1
+	ld	a,1
+	jr	switch_start
+ENTRY_SD2
+	ld	a,2
+	jr	switch_start
+ENTRY_STATUS
+	jp	get_status
+ENTRY_AVAILABILITY
+	jp	get_availability
+	ASSERT ENTRY_CF = #8000
+	ASSERT ENTRY_SD1 = #8003
+	ASSERT ENTRY_SD2 = #8007
+	ASSERT ENTRY_STATUS = #800B
+	ASSERT ENTRY_AVAILABILITY = #800E
+
+switch_start
+	di
+	ld	(selected_device),a
+	call	detect_all
+	ld	b,a
+	ld	a,(selected_device)
+	or	a
+	jr	z,.check_cf
+	cp	2
+	jr	z,.check_sd2
+	bit	1,b
+	jr	nz,.detected
+	jp	switch_not_detected
+.check_sd2
+	bit	2,b
+	jr	nz,.detected
+	jp	switch_not_detected
+.check_cf
+	bit	0,b
+	jp	z,switch_not_detected
+.detected
+	ld	a,PAGE_BSDOS
+	out	(23),a
+	ld	a,#1E			;KILLX az po uspesne detekci
+	rst	#20
+
+	ld	a,(selected_device)
+	or	a
+	jr	z,switch_cf
+	cp	2
+	jr	z,switch_sd2
+
+switch_sd1
+	ld	a,1
+	ld	(DOS_ACTIVE_DEVICE),a
+	ld	a,(DOS_SD1_PARTITION)
+	ld	h,'1'
+	ld	bc,SD1_LBA_STORE
+	ld	e,SD_SLOT_1
+	jr	switch_sd_common
+
+switch_sd2
+	ld	a,2
+	ld	(DOS_ACTIVE_DEVICE),a
+	ld	a,(DOS_SD2_PARTITION)
+	ld	h,'2'
+	ld	bc,SD2_LBA_STORE
+	ld	e,SD_SLOT_2
+
+switch_sd_common
+	add	a,'0'
+	ld	d,a
+	ld	a,e
+	ld	(selected_slot),a
+	ld	e,'P'
+	ld	(CAT_PARTITION),de
+	ld	l,'S'
+	ld	(CAT_DEVICE),hl
+	ld	h,b
+	ld	l,c
+	ld	a,(DOS_PAGE_SD)
+	ld	(DOS_ACTIVE_PAGE),a
+	out	(23),a
+	ld	a,(selected_slot)
+	ld	(SD_CARD_SELECT),a
+	jr	finish_sd
+
+switch_cf
+	ld	a,(DOS_CF_PARTITION)
+	add	a,'0'
+	ld	h,a
+	ld	l,'P'
+	ld	(CAT_PARTITION),hl
+	ld	hl,#4643		;v pameti "CF"
+	ld	(CAT_DEVICE),hl
+	xor	a
+	ld	(DOS_ACTIVE_DEVICE),a
+	ld	a,PAGE_CF
+	ld	(DOS_ACTIVE_PAGE),a
+	out	(23),a
+	xor	a
+	ld	(DRIVER_LASTD),a
+	jr	finish_ok
+
+finish_sd
+	xor	a
+	ld	(DRIVER_LASTD),a
+	ld	de,CURRENT_LBA_LOW
+	ld	bc,2
+	ldir
+	inc	de
+	ld	bc,2
+	ldir
+
+finish_ok
+	ld	a,NORMAL_MAPPING
+	out	(23),a
+	ld	bc,0
+	ei
+	ret
+
+switch_not_detected
+	ld	a,NORMAL_MAPPING
+	out	(23),a
+	ld	bc,1
+	ei
+	ret
+
+get_status
+	di
+	call	detect_all
+	ld	a,(current_device)
+	cp	#FF
+	call	z,detect_legacy_system
+	ld	c,a
+	ld	b,0
+	ei
+	ret
+
+get_availability
+	di
+	call	detect_all
+	ld	c,a
+	ld	b,0
+	ei
+	ret
+
+; OUT: A=maska bit0 CF, bit1 SD1, bit2 SD2. Vzdy obnovi #40 mapping.
+detect_all
+	xor	a
+	ld	(availability_mask),a
+	dec	a
+	ld	(current_device),a
+	ld	a,PAGE_BSDOS
+	out	(23),a
+
+; Podpis kompletni instalace "ES11" v BSDOS page.
+	ld	hl,(DOS_INSTALL_SIGNATURE)
+	ld	de,#5345
+	or	a
+	sbc	hl,de
+	jp	nz,.restore
+	ld	hl,(DOS_INSTALL_SIGNATURE+2)
+	ld	de,#3131
+	or	a
+	sbc	hl,de
+	jp	nz,.restore
+
+; Zakladni opkody dispatcheru v page 97.
+	ld	a,(#001B)
+	cp	#3E
+	jp	nz,.restore
+	ld	a,(#001D)
+	cp	#D3
+	jp	nz,.restore
+	ld	a,(#001E)
+	cp	#17
+	jr	nz,.restore
+	ld	a,(#001F)
+	cp	#C9
+	jr	nz,.restore
+
+	ld	a,(DOS_ACTIVE_DEVICE)
+	cp	3
+	jr	nc,.active_saved
+	ld	(current_device),a
+.active_saved
+	ld	a,(DOS_PAGE_SD)
+	ld	(saved_sd_page),a
+	ld	a,(DOS_SD1_PARTITION)
+	ld	(saved_sd1_partition),a
+	ld	a,(DOS_SD2_PARTITION)
+	ld	(saved_sd2_partition),a
+	ld	a,(DOS_CF_PARTITION)
+	ld	(saved_cf_partition),a
+
+; CF: platna partition, EasyCF10 a kompatibilni bankovni mostek.
+	cp	1
+	jr	c,.check_sd
+	cp	5
+	jr	nc,.check_sd
+	ld	a,PAGE_CF
+	out	(23),a
+	ld	de,EASYCF_ID
+	call	check_driver
+	jr	nz,.check_sd
+	ld	a,1
+	ld	(availability_mask),a
+
+.check_sd
+	ld	a,(saved_sd_page)
+	cp	PAGE_SD_MIN_RAW
+	jr	c,.restore
+	cp	PAGE_SD_MAX_RAW+1
+	jr	nc,.restore
+	out	(23),a
+	ld	de,EASYSD_ID
+	call	check_driver
+	jr	nz,.restore
+
+	ld	a,(saved_sd1_partition)
+	cp	1
+	jr	c,.check_sd2
+	cp	5
+	jr	nc,.check_sd2
+	ld	a,(availability_mask)
+	or	2
+	ld	(availability_mask),a
+.check_sd2
+	ld	a,(saved_sd2_partition)
+	cp	1
+	jr	c,.restore
+	cp	5
+	jr	nc,.restore
+	ld	a,(availability_mask)
+	or	4
+	ld	(availability_mask),a
+
+.restore
+	ld	a,NORMAL_MAPPING
+	out	(23),a
+	ld	a,(availability_mask)
+	ret
+
+; Pokud jeste neni nainstalovana 1.1, rozpoznej samostatny starsi driver
+; na pevne strance 98. Pouze informacni detekce, dostupnost switchu nemeni.
+; OUT: A=3 EasyHDD, 4 EasySD 1.0, 5 EasyCF, #FF neznamy system.
+detect_legacy_system
+	ld	a,PAGE_CF
+	out	(23),a
+	ld	de,EASYCF_ID
+	call	check_id
+	ld	a,5
+	jr	z,.save
+	ld	de,EASYSD_ID
+	call	check_id
+	ld	a,4
+	jr	z,.save
+	ld	de,EASYHDD_207_ID
+	call	check_id
+	ld	a,3
+	jr	z,.save
+	ld	de,EASYHDD_OLD_ID
+	call	check_id
+	ld	a,3
+	jr	z,.save
+	ld	a,#FF
+.save
+	ld	(current_device),a
+	ld	a,NORMAL_MAPPING
+	out	(23),a
+	ld	a,(current_device)
+	ret
+
+; DE=ocekavany osmibajtovy identifikator. Z=kompatibilni driver.
+check_driver
+	call	check_id
+	ret	nz
+	ld	hl,#001B
+	ld	de,DRIVER_BRIDGE_SIGNATURE
+	ld	b,6
+compare_bytes
+	ld	a,(de)
+	cp	(hl)
+	ret	nz
+	inc	de
+	inc	hl
+	djnz	compare_bytes
+	ret
+
+; DE=ocekavany osmibajtovy identifikator na offsetu #0008.
+check_id
+	ld	hl,#0008
+	ld	b,8
+	jr	compare_bytes
+
+EASYCF_ID	db "EasyCF10"
+EASYSD_ID	db "EasySD10"
+EASYHDD_207_ID	db "HddEH207"
+EASYHDD_OLD_ID	db "HddDrive"
+DRIVER_BRIDGE_SIGNATURE db #3E,#61,#D3,#17,#18,#6F
+
+selected_device	db 0
+selected_slot		db 0
+availability_mask	db 0
+current_device		db #FF
+saved_sd_page		db 0
+saved_sd1_partition	db 0
+saved_sd2_partition	db 0
+saved_cf_partition	db 0
+
+END

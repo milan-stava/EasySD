@@ -1,78 +1,113 @@
-# EasySD 1.0.1
+# EasySD / EasyCF 1.1
 
-EasySD 1.0.1 is the current release of EasySD for BSDOS.
+EasySD / EasyCF 1.1 adds runtime switching between CompactFlash, SD1 and SD2 on MB03+ without resetting BSDOS or losing normal RAM contents.
 
-EasySD automatically detects supported FAT16/FAT32 partitions, locates MBD/MBH disk images and configures BSDOS without requiring the user to know their physical sector location.
+The original EasySD 1.0.1 remains the current standalone release for MB03+ Slim and eLeMeNt ZX. Version 1.1 is an MB03+-only extension and requires a compatible EasyCF 1.0 installation.
 
-![EasySD 1.0](images/01-easysd-overview.png)
+![EasySD](images/01-easysd-overview.png)
 
-## Supported hardware
+## What's new in 1.1
+
+- runtime switching between CF, SD1 and SD2
+- independent SD1 and SD2 detection and partition selection
+- support for systems containing only one SD card
+- automatic selection of usable SD partitions
+- manual eight-row partition selector with a full-width cursor
+- safe rejection of missing devices and unusable partitions
+- BASIC switcher with detection of EasyHDD, EasyCF and EasySD 1.0
+- `KILLX` after switching to invalidate cached disk information
+- active device and partition displayed in the BSDOS catalogue corners
+- write-protection symbol displayed only next to the disk number
+- compatible EasyCF check before the installer touches SD hardware
+- configurable EasySD SRAM page in the physical range 6-32
+
+## Requirements and compatibility
+
+EasySD / EasyCF 1.1 requires:
 
 - MB03+
-- MB03+ Slim
-- eLeMeNt ZX
+- BSDOS 3.08
+- compatible EasyCF 1.0 in SRAM page 2 (write mapping value 98)
 
-EasySD 1.0.1 therefore supports three hardware platforms. On MB03+ version 1.0.1 uses SD slot `SD1` only; from the user's point of view this is the left SD slot.
+The installer verifies the `EasyCF10` identifier and the required bank-switching bridge before installation. If the check fails, it displays `EasyCF required` and exits without modifying BSDOS.
 
-## What's new in 1.0.1
+Version 1.1 is not intended for a standalone eLeMeNt ZX or MB03+ Slim. Continue using EasySD 1.0.1 on those platforms.
 
-- added MB03+ Slim support
-- added `EasySD_SLIM.tap` bootstrap
-- EasySD now supports MB03+, MB03+ Slim and standalone eLeMeNt ZX
-- updated build system and documentation
+## Installation
 
-## Main features
+1. Install and verify EasyCF 1.0.
+2. Run `EasySD_1_1_INSTALL.tap`.
+3. Check the detected SD1 and SD2 cards and their partitions.
+4. Confirm the automatically selected partitions or hold SPACE for manual selection.
+5. Run `SWITCH_MENU.tap` whenever CF/SD1/SD2 switching is required.
 
-- FAT16 and FAT32 support
-- up to four primary partitions
-- superfloppy FAT16/FAT32 media support
-- automatic and manual partition selection
-- SPACE override for temporary MANUAL mode
-- BSDOS disks 1–255
-- MBD and MBH image support
-- automatic calculation of the physical LBA of the first BSDOS disk
-- per-disk write protection
-- SDHC and SDXC support
-- SD initialization with timeout and retry handling
-- FAT32 root-directory preparation tools for Windows and Linux
+The menu marks an unavailable target as `NOT DETECTED` and refuses to switch to it. Before a complete 1.1 installation it only reports the detected legacy system and displays `EasySD/EasyCF 1.1 not installed`.
 
-## Downloads
+## Switcher entry points
 
-The current release is available in the GitHub Releases section.
+The shared machine-code switcher is loaded at `#8000`:
 
-### Complete package
+| Address | Decimal | Function |
+| --- | ---: | --- |
+| `#8000` | 32768 | switch to CF |
+| `#8003` | 32771 | switch to SD1 |
+| `#8007` | 32775 | switch to SD2 |
+| `#800B` | 32779 | return current system in BC |
+| `#800E` | 32782 | return availability mask in BC |
 
-[**Download EasySD v1.0.1 ZIP**](https://github.com/milan-stava/EasySD/releases/download/v1.0.1/EasySD_v1.0.1.zip)
+The availability mask uses bit 0 for CF, bit 1 for SD1 and bit 2 for SD2. Switching returns `BC=0` on success and `BC=1` when the target is unavailable.
 
-### Individual files
+## Building
 
-- [EasySD_MB_BIN.tap](https://github.com/milan-stava/EasySD/releases/download/v1.0.1/EasySD_MB_BIN.tap) – EasySD for MB03+
-- [EasySD_SLIM.tap](https://github.com/milan-stava/EasySD/releases/download/v1.0.1/EasySD_SLIM.tap) – EasySD for MB03+ Slim
-- [EasySD_EL.tap](https://github.com/milan-stava/EasySD/releases/download/v1.0.1/EasySD_EL.tap) – EasySD for standalone eLeMeNt ZX
-- [EasySD_documentation.txt](https://github.com/milan-stava/EasySD/releases/download/v1.0.1/EasySD_documentation.txt) – complete manual
-- [PREPARE_EASY_FAT32.bat](https://github.com/milan-stava/EasySD/releases/download/v1.0.1/PREPARE_EASY_FAT32.bat) – Windows FAT32 preparation tool
-- [PREPARE_EASY_FAT32.sh](https://github.com/milan-stava/EasySD/releases/download/v1.0.1/PREPARE_EASY_FAT32.sh) – Linux FAT32 preparation tool
+The original `compile.bat` and `compile.sh` still build the EasySD 1.0.1 targets.
 
-See the [EasySD 1.0.1 release](https://github.com/milan-stava/EasySD/releases/tag/v1.0.1) for release notes.
+Version 1.1 is built separately:
 
-## Important
+```text
+compile_1_1.bat
+```
 
-MBD/MBH disk images must form one physically contiguous area on the media.
+or on Linux:
 
-Version 1.0.1 has been tested on real MB03+, MB03+ Slim and eLeMeNt ZX hardware. BSDOS read and write operations were verified on the applicable hardware, and the MB03+ Slim bootstrap was verified on real hardware.
+```text
+./compile_1_1.sh
+```
+
+Required tools:
+
+- SjASMPlus 1.20.3 or compatible
+- Python 3 for TAP generation
+
+The 1.1 build produces:
+
+- `EasySD_1_1_INSTALL.tap`
+- `SWITCH_MENU.tap`
+
+Assembler listings, raw binaries and TAP files are build artifacts and are excluded from Git.
+
+## Testing
+
+Version 1.1 was tested on real MB03+ hardware with CF, SD1 and SD2. Runtime switching, repeated catalogues, LOAD/SAVE, non-empty `.SEARCH`, write-protection display, single-card configurations and unavailable-target rejection were verified.
+
+## Known external limitation
+
+Returning through the MB03+ BOOT `E` function when SD2 was the last active device requires a separate future MB03+ BOOT update. This does not affect normal CF/SD1/SD2 switching performed by `SWITCH_MENU.tap`.
+
+## EasySD 1.0.1
+
+EasySD 1.0.1 remains available for MB03+, MB03+ Slim and standalone eLeMeNt ZX:
+
+- [EasySD v1.0.1 release](https://github.com/milan-stava/EasySD/releases/tag/v1.0.1)
+- [EasySD v1.0.1 complete ZIP](https://github.com/milan-stava/EasySD/releases/download/v1.0.1/EasySD_v1.0.1.zip)
+
+Its main features include FAT16/FAT32, four primary partitions, superfloppy media, automatic/manual partition selection, MBD/MBH images, per-disk write protection and SDHC/SDXC support.
 
 ## Documentation
 
-See `EasySD_documentation.txt` for the complete user and technical manual.
+See `EasySD_documentation.txt` for the existing EasySD manual. Version 1.1 release notes are stored in `RELEASE_NOTES_1.1.md`.
 
-## Related project
+Official documentation:
 
-EasyCF is the CompactFlash counterpart of EasySD. CompactFlash access is provided by MB03+; EasyCF can also be launched from eLeMeNt ZX when an external MB03+ with a CF card is connected.
-
-## Official website
-
-Full HTML documentation, screenshots and project information:
-
-- [English documentation](https://hood.speccy.cz/dwnld/EasySD_CF_infoEN.html)
-- [Czech documentation](https://hood.speccy.cz/dwnld/EasySD_CF_infoCZ.html)
-- [German documentation](https://hood.speccy.cz/dwnld/EasySD_CF_infoDE.html)
+- [English](https://hood.speccy.cz/dwnld/EasySD_CF_infoEN.html)
+- [Czech](https://hood.speccy.cz/dwnld/EasySD_CF_infoCZ.html)
+- [German](https://hood.speccy.cz/dwnld/EasySD_CF_infoDE.html)
