@@ -33,6 +33,8 @@ EasySD / EasyCF 1.1 is an MB03+ extension providing runtime switching between CF
 
 This release targets MB03+ and BSDOS 3.08. Standalone eLeMeNt ZX and MB03+ Slim users should continue using EasySD 1.0.1.
 
+EasyCF 1.1 provides the same standalone CF functionality as EasyCF 1.0. Its only functional difference is the internal preparation for CF/SD1/SD2 runtime switching: a compatible bank-switching bridge and fixed interface. The internal identifier remains `EasyCF10`, so the installer checks both the identifier and the bridge before enabling EasySD 1.1.
+
 ## Verification
 
 The final installer and switcher were verified on real MB03+ hardware. Tests covered CF/SD1/SD2 switching, configurations with a missing SD card, repeated catalogues, LOAD/SAVE, non-empty `.SEARCH`, write-protection display and rejection of unavailable targets.

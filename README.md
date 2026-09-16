@@ -33,6 +33,14 @@ The installer verifies the `EasyCF10` identifier and the required bank-switching
 
 Version 1.1 is not intended for a standalone eLeMeNt ZX or MB03+ Slim. Continue using EasySD 1.0.1 on those platforms.
 
+### EasyCF 1.0 and EasyCF 1.1
+
+EasyCF 1.1 is functionally identical to EasyCF 1.0 during normal standalone CF operation. Disk access, partition handling and the user-visible BSDOS behaviour are unchanged. The 1.1 build only adds the internal bank-switching bridge and fixed interface required for runtime switching between CF, SD1 and SD2.
+
+Users who do not use runtime device switching gain no additional CF functions from EasyCF 1.1. An older EasyCF 1.0 build can still operate CF normally, but it cannot be used as the CF component of this switching system unless it contains the compatible bridge.
+
+The internal driver identifier intentionally remains `EasyCF10` for compatibility. The EasySD 1.1 installer therefore checks both this identifier and the additional bridge code; the identifier alone is not considered sufficient.
+
 ## Installation
 
 1. Install and verify EasyCF 1.0.
