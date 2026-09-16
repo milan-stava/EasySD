@@ -4,7 +4,20 @@ EasySD / EasyCF 1.1 adds runtime switching between CompactFlash, SD1 and SD2 on 
 
 The original EasySD 1.0.1 remains the current standalone release for MB03+ Slim and eLeMeNt ZX. Version 1.1 is an MB03+-only extension and requires a compatible EasyCF 1.0 installation.
 
-![EasySD](images/01-easysd-overview.png)
+## Screenshots
+
+### Dual SD installer
+
+![EasySD 1.1 dual SD installer](images/EasySD11_1_install.png)
+
+### BSDOS catalogue integration
+
+![BSDOS catalogue with active device and partition](images/EasySD11_2_catalogue.png)
+
+### Runtime switcher
+
+![EasySD EasyCF runtime switcher](images/EasySD11_3_switcher.png)
+
 
 ## What's new in 1.1
 
