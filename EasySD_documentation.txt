@@ -3,8 +3,57 @@ EasySD & EasyCF
 
 Uživatelský a technický manuál
 
-Pracovní verze pro vydání 1.0
-Aktualizováno 8. 9. 2026
+Verze dokumentace 1.1
+Aktualizováno 16. 9. 2026
+
+
+CO PŘINÁŠÍ VERZE 1.1
+=====================
+
+EasySD 1.1 zachovává práci s FAT16/FAT32 a MBD/MBH známou
+z verze 1.0.1, ale na MB03+ výrazně rozšiřuje možnosti ukládání BSDOS
+disků. EasySD nyní umí používat oba SD sloty: SD1 i SD2. Navíc je možné
+za běhu přepínat mezi CF, SD1 a SD2 bez resetu BSDOSu a bez ztráty obsahu
+běžné RAM. K tomu slouží jednoduchý BASICový program SWITCH_MENU.tap.
+
+Drivery jsou fyzicky uloženy ve dvou SRAM stránkách. EasyCF používá pevně
+fyzickou stránku 2. Jeden společný EasySD driver pro SD1 i SD2 je standardně
+uložen ve fyzické stránce 9; uživatel může tuto stránku konfiguračním bajtem
+změnit v rozsahu 6–32.
+
+Kvůli úspoře paměti byly z instalátoru 1.1 odstraněny velké úvodní obrázky
+a zvuková data. Konfigurační pozice showsplash a playnoise sice zůstaly
+zachovány v rozložení původního bloku, ale ve verzi 1.1 již nemají žádný
+účinek. Malé logo a vlastní společné GUI zůstávají součástí instalátoru.
+
+Z toho plyne povinné pořadí instalace: nejprve musí být nainstalováno
+kompatibilní EasyCF a teprve potom EasySD 1.1. Pokud je EasyCF později
+přeinstalováno, spusťte znovu také instalátor EasySD 1.1. Praktickou
+variantou je uložit EasyCF do flash a instalátor EasySD 1.1 spouštět
+z AUTOEXE; nejde však o jediný možný způsob spuštění.
+
+Instalátor 1.1 zobrazuje společný přehled obou SD karet. Nejprve načte
+údaje a partition SD1, potom SD2. První čtyři řádky partition tabulky
+patří SD1 a další čtyři SD2. Přítomna může být jedna karta nebo obě.
+
+V automatickém režimu má každá SD karta vlastní preferovanou partition.
+Není-li použitelná, vybere se první použitelná partition na stejné kartě.
+Podržením SPACE během skenování se přejde do ručního režimu. Kurzor
+prochází všech osm řádků, ENTER nastavuje nebo ruší modrou použitelnou
+partition a SPACE volbu potvrzuje. Vybrané partition jsou označeny
+hvězdičkou.
+
+Switcher před přepnutím kontroluje dostupnost CF, SD1 i SD2. Nedostupný
+cíl označí textem NOT DETECTED a přepnutí odmítne. Aktivní zařízení je
+v katalogu BSDOSu zobrazeno vlevo nahoře jako CF, S1 nebo S2 a použitá
+partition vpravo nahoře jako P1–P4. Znak zámku označující write protect
+se zobrazuje pouze bezprostředně za číslem příslušného BSDOS disku.
+
+Verze 1.1 s přepínáním CF/SD1/SD2 je určena pouze pro MB03+. Pro samostatný
+eLeMeNt ZX a MB03+ Slim zůstává aktuální EasySD 1.0.1.
+
+Podrobné instalační, konfigurační a technické informace následují v dalších
+kapitolách tohoto manuálu.
 
 
 PODĚKOVÁNÍ
@@ -55,6 +104,7 @@ OBSAH
   20. EasySD – specifika SD karet
   21. EasyCF – specifika CompactFlash
   22. Použití, chybové stavy a ukončení programu
+  23. Přepínání CF, SD1 a SD2 ve verzi 1.1
 
 PŘÍLOHA A – TESTOVÁNÍ A OVĚŘENÍ
 
@@ -78,8 +128,16 @@ fyzické umístění prvního MBD/MBH image ani ručně počítat sektory. Progr
 si potřebné údaje zjistí přímo z média, vypočítá fyzický začátek oblasti
 BSDOS disků a podle něj nastaví BSDOS.
 
-EasySD je určeno pro MB03+ i eLeMeNt ZX.
+EasySD 1.0.1 je určeno pro MB03+, MB03+ Slim a samostatný eLeMeNt ZX.
 EasyCF navazuje na původní CF řešení EasyHdd a je určeno pouze pro MB03+.
+
+Verze EasySD 1.1 je rozšíření určené výhradně pro MB03+. Vedle
+původního slotu SD1 umožňuje používat také druhý slot SD2 a za běhu
+přepínat mezi CF, SD1 a SD2 bez resetu BSDOSu a bez ztráty běžné RAM.
+
+Samotná práce s FAT16/FAT32 a MBD/MBH zůstává ve verzi 1.1 shodná
+s verzí 1.0.1. Hlavní novinkou je společná instalace obou SD slotů,
+přepínání zařízení a zobrazení aktivního zařízení přímo v katalogu.
 
 
 2. Instalace a spuštění
@@ -110,14 +168,47 @@ EasySD na MB03+
 EasySD lze na MB03+ spustit obdobně: buď z BASICu, nebo jej zavést pomocí
 Reflasheru.
 
-MB03+ má dva sloty pro SD kartu. EasySD ve verzi 1.0 používá slot SD1.
+MB03+ má dva sloty pro SD kartu. EasySD ve verzi 1.0.1 používá slot SD1.
 Při pohledu uživatele sedícího před počítačem je SD1 levý slot.
+
+EasySD 1.1 používá oba sloty SD1 a SD2. Instalační obrazovka nejprve
+zobrazí informace a partition karty SD1 a potom informace a partition
+karty SD2. Přítomna může být jedna karta nebo obě karty.
+
+
+EasySD 1.1 s EasyCF na MB03+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Verze 1.1 vyžaduje pevné pořadí instalace:
+
+1. nejprve nainstalujte kompatibilní EasyCF,
+2. potom spusťte EasySD_1_1_INSTALL.tap,
+3. pro přepínání za běhu používejte SWITCH_MENU.tap.
+
+EasyCF musí být nainstalováno jako první. Instalační program EasySD 1.1
+ještě před přístupem k SD kartám ověří identifikátor EasyCF10 i potřebné
+přepínací rozhraní. Není-li kompatibilní EasyCF nalezeno, zobrazí text
+„EasyCF required“ a skončí bez změny BSDOSu.
+
+EasyCF je ve společném systému pevně uloženo ve fyzické SRAM stránce 2. EasySD
+používá druhou, samostatnou SRAM stránku, společnou pro obsluhu SD1 i SD2.
+Její výchozí fyzické číslo je 9 a lze je změnit konfiguračním bajtem.
+
+Pokud je později EasyCF přeinstalováno nebo aktualizováno, je nutné znovu
+spustit také instalátor EasySD 1.1, aby se obnovilo celé společné přepínání.
+
+Pro automatický start lze například uložit EasyCF do flash a spouštět je
+klávesou 1. Instalátor EasySD 1.1 je potom možné zavést z AUTOEXE. Jde pouze
+o doporučenou možnost; oba programy lze spouštět také z BASICu.
 
 
 EasySD na eLeMeNt ZX bez MB03+
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Součástí balíku je také verze EasySD pro samostatný eLeMeNt ZX bez MB03+.
+
+Pro samostatný eLeMeNt ZX zůstává určena verze EasySD 1.0.1. Přepínací
+systém 1.1 pro CF/SD1/SD2 se na této platformě nepoužívá.
 
 Pro její zavedení je vhodné použít ESXDOS. Na SD kartě může být například:
 
@@ -132,6 +223,14 @@ Po jeho spuštění se EasySD zavede do paměti a BSDOS lze používat i na
 samostatném eLeMeNtu ZX bez MB03+.
 
 Podrobný postup přípravy FAT16/FAT32 partition je uveden dále v manuálu.
+
+
+EasySD na MB03+ Slim
+~~~~~~~~~~~~~~~~~~~~
+
+Pro MB03+ Slim zůstává určena verze EasySD 1.0.1 a příslušný soubor
+EasySD_SLIM.tap. Verze 1.1 a její přepínání CF/SD1/SD2 jsou určeny pouze
+pro plnou MB03+.
 
 
 3. Vztah k původnímu EasyHdd
@@ -177,6 +276,11 @@ podobné. Liší se především nízkoúrovňovým přístupem k médiu:
 EasySD  -> SD driver
 EasyCF  -> ATA/IDE driver
 
+Na MB03+ ve verzi 1.1 již nemusíte zvolit pouze jeden z nich. EasyCF
+a EasySD mohou být nainstalovány současně ve dvou SRAM stránkách a
+Switcher mezi nimi přepíná za běhu. EasyCF přitom zůstává ve fyzické
+stránce 2 a společný driver SD1/SD2 je standardně ve stránce 9.
+
 
 5. Co oba programy umějí
 ------------------------
@@ -194,8 +298,20 @@ Základní společné vlastnosti:
 - rozpoznání nepoužitelných nebo nepodporovaných partition,
 - možnost write protect pro každý BSDOS disk zvlášť.
 
-EasySD navíc obsahuje vlastní inicializaci a obsluhu SD karty a umí
-oznámit stav „Not Found“, pokud SD karta není dostupná.
+EasySD navíc obsahuje vlastní inicializaci a obsluhu SD karty. Verze 1.0.1
+umí oznámit stav „Not Found“, pokud SD karta není dostupná; verze 1.1
+zobrazuje stav každého slotu samostatně.
+
+EasySD 1.1 ve spojení s EasyCF na MB03+ dále přidává:
+
+- samostatnou detekci slotů SD1 a SD2,
+- výběr jedné partition pro každou přítomnou SD kartu,
+- funkci i v konfiguraci pouze s jednou vloženou SD kartou,
+- přepínání CF, SD1 a SD2 za běhu pomocí BASICového Switcheru,
+- odmítnutí přepnutí na zařízení označené NOT DETECTED,
+- vyčištění starých údajů z cache BSDOSu službou KILLX po přepnutí,
+- označení aktivního zařízení CF/S1/S2 a partition P1–P4 v rozích katalogu,
+- zobrazení zámku write protect pouze vedle čísla BSDOS disku.
 
 
 6. Nejdůležitější pravidlo – souvislá oblast MBD/MBH
@@ -280,8 +396,14 @@ platí základní podmínka: celý MBH soubor musí být na médiu fyzicky souvi
 AUTO
 ~~~~
 
-V automatickém režimu program použije nastavenou preferovanou partition (viz promenna "partition" v configu, viz níže).
-Pokud není použitelná pro BSDOS, vyhledá první použitelnou partition.
+V automatickém režimu program použije nastavenou preferovanou partition
+(viz konfigurační proměnná partition níže). Pokud není použitelná pro
+BSDOS, vyhledá první použitelnou partition.
+
+EasySD 1.1 má samostatnou preferovanou partition pro SD1 a SD2. U každé
+přítomné karty nejprve zkusí nastavenou P1–P4. Není-li použitelná, vybere
+první použitelnou partition na stejné kartě. Hledání nikdy nepřejde
+z jedné SD karty na druhou.
 
 MANUAL
 ~~~~~~
@@ -292,6 +414,13 @@ V manuálním režimu lze zobrazit i kartu, na které není žádná použiteln�
 BSDOS partition. Program tedy nevyskočí jen proto, že na médiu nebyl
 nalezen MBD/MBH image.
 
+V EasySD 1.1 prochází kurzor všech osm pevných řádků: P1–P4 karty SD1
+a P1–P4 karty SD2. Modrá položka je použitelná, červená položka
+nepoužitelná. ENTER na modré položce výběr nastaví nebo zruší; ENTER
+na červené položce neprovede žádnou akci. Vybraná partition je označena
+hvězdičkou. Pro každou SD kartu lze zvolit nejvýše jednu partition.
+SPACE volbu potvrdí a EDIT instalátor ukončí.
+
 SPACE override
 ~~~~~~~~~~~~~~
 
@@ -300,11 +429,18 @@ SPACE. Pro toto jedno spuštění se tím vynutí MANUAL režim.
 
 Trvalé nastavení programu se tím nemění.
 
+U verze 1.1 je SPACE zachycována během úvodního skenování. Jakmile se
+zobrazí všech osm řádků a kurzor, původně držená SPACE se nejprve ignoruje
+a program čeká na její uvolnění. Teprve nový stisk SPACE potvrzuje volbu.
+
 
 9. Konfigurace programu
 -----------------------
 
-Pro verzi 1.0 je konfigurační blok sjednocen tak, aby začínal na stejné
+Konfigurace EasySD/EasyCF 1.0.1
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pro verzi 1.0.1 je konfigurační blok sjednocen tak, aby začínal na stejné
 adrese u EasySD pro MB03+, EasySD pro eLeMeNt i u EasyCF.
 
 Program se nahrává od adresy:
@@ -320,13 +456,13 @@ a zabírá osm bajtů #8006 až #800D.
 Adresa   Offset   Název          Význam
 -----------------------------------------------------------------------
 
-#8006      0      autoinstall    0 = pokračovat bez čekání
+#8006    #0006    autoinstall    0 = pokračovat bez čekání
                                  1 = po instalaci čekat na klávesu
 
-#8007      1      autoconfig     0 = automatický výběr partition (AUTO režim)
+#8007    #0007    autoconfig     0 = automatický výběr partition (AUTO režim)
                                  1 = manuální výběr partition
 
-#8008      2      partition      Preferovaná partition pro AUTO režim.
+#8008    #0008    partition      Preferovaná partition pro AUTO režim.
 
                                  SD1:
                                  1 = P1
@@ -334,25 +470,22 @@ Adresa   Offset   Název          Význam
                                  3 = P3
                                  4 = P4
 
-                                 Hodnoty 5–8 odpovídají P1–P4
-                                 zařízení SD2.
-
                                  Pokud zvolená partition není použitelná
                                  pro BSDOS, program hledá první použitelnou.
 
-#8009      3      showsplash     0 = nezobrazovat úvodní obrazovku
+#8009    #0009    showsplash     0 = nezobrazovat úvodní obrazovku
                                  1 = zobrazovat
 
-#800A      4      playnoise      0 = zvuk vypnut
+#800A    #000A    playnoise      0 = zvuk vypnut
                                  1 = zvuk zapnut
 
-#800B      5      showgui        0 = GUI nezobrazovat
+#800B    #000B    showgui        0 = GUI nezobrazovat
                                  1 = GUI zobrazovat
 
-#800C      6      noverify       0 = standardní ověřování zápisu
+#800C    #000C    noverify       0 = standardní ověřování zápisu
                                  1 = ověřování zápisu vypnuto
 
-#800D      7      dmar3          Instalace opravy DMA registru R3.
+#800D    #000D    dmar3          Instalace opravy DMA registru R3.
                                  U EasySD se DMA pro SD nepoužívá;
                                  výchozí hodnota je proto 0.
 
@@ -374,6 +507,74 @@ znamená automatický výběr partition, ale po instalaci program počká,
 aby si uživatel mohl přečíst výsledek.
 
 
+Konfigurace EasySD 1.1 pro MB03+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Instalátor 1.1 obsahuje před původní konfigurací časnou kontrolu EasyCF,
+proto jsou jeho konfigurační bajty na jiných adresách než ve verzi 1.0.1.
+Následující adresy platí pro finální EasySD_1_1_INSTALL.bin načtený od
+#8000:
+
+Adresa   Offset   Název                 Význam
+-----------------------------------------------------------------------
+
+#8015    #0015    autoinstall           Zachováno kvůli kompatibilitě.
+                                        V dual GUI 1.1 se výsledek volby
+                                        potvrzuje stiskem klávesy.
+
+#8016    #0016    autoconfig            Zachováno kvůli kompatibilitě.
+                                        Ruční režim 1.1 se vyvolává
+                                        podržením SPACE při skenování.
+
+#8017    #0017    partition             Interní pracovní hodnota původního
+                                        jednodiskového výběru.
+
+#8018    #0018    dual_partition_sd1    Preferovaná partition SD1:
+                                        1=P1, 2=P2, 3=P3, 4=P4.
+
+#8019    #0019    dual_partition_sd2    Preferovaná partition SD2:
+                                        1=P1, 2=P2, 3=P3, 4=P4.
+
+#801A    #001A    showsplash            Zachováno v rozložení konfigurace;
+                                        dual GUI 1.1 splash nepoužívá.
+
+#801B    #001B    playnoise             Zachováno v rozložení konfigurace;
+                                        dual GUI 1.1 zvuk nepoužívá.
+
+#801C    #001C    showgui               Zachováno v rozložení konfigurace;
+                                        společné GUI 1.1 se zobrazuje vždy.
+
+#801D    #001D    noverify              Nastavení ověřování zápisu.
+
+#801E    #001E    dmar3                 Nastavení opravy DMA registru R3.
+
+#801F    #001F    page_sd               Fyzická SRAM stránka společného
+                                        SD driveru pro SD1 i SD2.
+                                        Výchozí hodnota 9, povoleno 6–32.
+
+Pro běžnou uživatelskou konfiguraci verze 1.1 jsou nejdůležitější bajty
+#8018, #8019 a #801F.
+
+Hodnota dual_partition_sd1 nebo dual_partition_sd2 určuje preferovanou
+fyzickou partition P1–P4 příslušné karty. Není-li použitelná, instalátor
+vybere první použitelnou partition na stejné kartě. Neplatná hodnota také
+vede k bezpečnému hledání první použitelné partition a nikdy k přechodu
+na druhou kartu.
+
+EasyCF je pevně uloženo ve fyzické SRAM stránce 2. Tato hodnota není
+uživatelsky konfigurovatelná. Bajt page_sd vybírá jinou stránku pro jeden
+společný EasySD driver obsluhující SD1 i SD2. Výchozí fyzická stránka je 9.
+
+Do konfiguračního bajtu #801F se zapisuje fyzické číslo stránky, tedy
+výchozí hodnota 9. MB03+ z ní interně vytvoří zapisovací mapovací hodnotu
+přičtením 96; fyzická stránka 9 proto za běhu odpovídá hodnotě 105.
+Do konfiguračního bajtu se však zapisuje 9, nikoli 105.
+
+Stránky 0–5 jsou vyhrazeny pro BSROM, BSDOS, EasyCF a NMI systém. Proto
+instalátor přijímá pouze fyzické stránky 6–32. Při jiné hodnotě zobrazí
+„SD page must be 6-32“ a skončí bez instalace.
+
+
 10. Stručné shrnutí
 -------------------
 
@@ -386,6 +587,14 @@ Pro běžné použití stačí pamatovat na několik pravidel:
 5. v AUTO režimu zvolí partition sám,
 6. SPACE při startu jednorázově vyvolá MANUAL režim,
 7. BSDOS disky jsou číslovány 1–255.
+
+Pro verzi 1.1 na MB03+ navíc platí:
+
+8. EasyCF musí být nainstalováno jako první,
+9. EasySD 1.1 se instaluje až po úspěšné kontrole EasyCF,
+10. jeden společný SD driver obsluhuje SD1 i SD2,
+11. Switcher přepíná CF, SD1 a SD2 bez resetu BSDOSu,
+12. po přeinstalaci EasyCF spusťte znovu instalátor EasySD 1.1.
 
 
 ======================================================================
@@ -746,6 +955,10 @@ Konfigurační blok je určen pro uživatele, kteří chtějí změnit výchozí
 chování programu přímo v binárním souboru nebo při sestavení zdrojového
 kódu.
 
+Následující původní blok #8006–#800D platí pro EasySD/EasyCF 1.0.1.
+Konfigurační adresy instalátoru 1.1 jsou kvůli časné kontrole EasyCF
+posunuté a jsou přesně uvedeny v kapitole 9.
+
 Základní adresa programu:
 
 #8000
@@ -803,7 +1016,8 @@ SD1:
 3 = P3
 4 = P4
 
-Hodnoty 5–8 odpovídají P1–P4 druhého SD zařízení SD2.
+Ve verzi 1.0.1 jsou pro EasySD platné hodnoty 1–4. Samostatné preference
+pro SD1 a SD2 přidává až verze 1.1 na adresách #8018 a #8019.
 
 showsplash
 ~~~~~~~~~~
@@ -838,15 +1052,44 @@ U EasySD je pro SD přenosy DMA vypnuto a výchozí hodnota dmar3 je 0.
 U EasyCF může být výchozí hodnota odlišná podle ATA/IDE varianty.
 
 
+Konfigurační rozdíly EasySD 1.1
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Verze 1.1 používá dvě nezávislé preference partition:
+
+#8018 / offset #0018 = preferovaná P1–P4 pro SD1
+#8019 / offset #0019 = preferovaná P1–P4 pro SD2
+
+Povolené hodnoty obou bajtů jsou 1–4. Není-li preferovaná partition
+použitelná, hledá se první použitelná partition na stejné kartě.
+
+Nový bajt:
+
+#801F / offset #001F = fyzická SRAM stránka EasySD driveru
+
+má výchozí hodnotu 9 a povolený rozsah 6–32. Jeden driver v této stránce
+obsluhuje SD1 i SD2. EasyCF zůstává pevně ve fyzické stránce 2 a jeho
+stránku nelze v konfiguraci 1.1 měnit.
+
+V dual GUI se ruční výběr nevyvolává změnou starého bajtu autoconfig,
+ale podržením SPACE během skenování obou SD slotů.
+
+Úvodní obrázky a zvuková data byla z verze 1.1 odstraněna, aby se celý
+instalátor bezpečně vešel do dostupné paměti. Bajty showsplash a playnoise
+jsou proto ve verzi 1.1 neaktivní bez ohledu na svou hodnotu. Zůstávají
+pouze jako historické pozice původního konfiguračního rozložení.
+
+
 20. EasySD – specifika SD karet
 -------------------------------
 
-EasySD je určeno pro MB03+ a eLeMeNt ZX.
+EasySD 1.0.1 je určeno pro MB03+, MB03+ Slim a eLeMeNt ZX.
+EasySD 1.1 s obsluhou SD1/SD2 a přepínáním CF je určeno pouze pro MB03+.
 
-EasySD 1.0 používá aktuální generaci SD rutin od JohnyX z června 2026,
+EasySD 1.0.1 používá aktuální generaci SD rutin od JohnyX z června 2026,
 převzatou z verze zveřejněné v jeho GitHub repozitáři. Oproti původním
 rutinám použitým během vývoje tak release verze obsahuje nejnovější
-SD driver dostupný v době dokončení EasySD 1.0.
+SD driver dostupný v době dokončení EasySD 1.0.1.
 
 Program:
 
@@ -858,7 +1101,34 @@ Program:
 - vypočítá absolutní LBA,
 - vytvoří a nainstaluje potřebné nastavení BSDOSu.
 
-Pokud SD karta není dostupná nebo inicializace selže, EasySD zobrazí:
+
+Oba SD sloty ve verzi 1.1
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Po spuštění EasySD 1.1 se ihned zobrazí společná obrazovka. Program
+postupně detekuje SD1, zobrazí její údaje a partition, potom stejným
+způsobem zpracuje SD2. Uživatel tak během inicializace nečeká na černé
+obrazovce a vidí průběžný výsledek.
+
+Horní část obsahuje zhuštěné informace o obou kartách. Partition tabulka
+má osm pevných řádků:
+
+- první čtyři řádky patří SD1,
+- další čtyři řádky patří SD2.
+
+Chybějící karta je označena textem „not inserted“ a její partition řádky
+textem „No card“. Kurzor přesto zachovává všech osm pevných pozic. ENTER
+na chybějící nebo jinak neplatné červené položce se pouze ignoruje.
+
+Je-li použita superfloppy, představuje první řádek celý nosič a zbývající
+tři řádky dané karty zůstávají prázdné.
+
+Automatický výběr může zvolit jednu partition SD1 a jednu partition SD2.
+Stačí však alespoň jedna použitelná karta a jedna vybraná partition.
+Uživatel může provozovat SD1, SD2 nebo obě karty současně.
+
+Pokud SD karta není ve verzi 1.0.1 dostupná nebo inicializace selže,
+EasySD zobrazí:
 
 Not Found
 
@@ -926,6 +1196,23 @@ Soubor uložený prostřednictvím BSDOSu na CF kartu byl následně znovu
 
 Stav čtení/zápisu: PASS
 
+
+EasyCF ve společném systému EasySD 1.1
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Samostatná verze EasyCF 1.1 neexistuje. Ovladače EasyCF 1.0 a EasyCF
+1.0.1 mají shodnou funkci i obsluhu CF. Balík EasyCF 1.0.1 se od balíku
+1.0 liší pouze dvěma přidanými spouštěcími TAP soubory pro MB03+ Slim
+a samostatný eLeMeNt ZX.
+
+EasySD 1.1 kontroluje textový identifikátor EasyCF10 a potřebný přepínací
+vstup. Jde o kontrolu kompatibility již nainstalovaného EasyCF, nikoli
+o rozlišení nebo zavedení nové verze EasyCF.
+
+EasyCF je ve společném systému pevně umístěno ve fyzické SRAM stránce 2,
+která odpovídá zapisovací mapovací hodnotě 98. EasySD se instaluje do jiné,
+konfigurovatelné stránky. EasyCF proto musí být nainstalováno jako první.
+
 EasyCF bylo ověřeno také bez vložené CompactFlash karty. Po spuštění se
 zobrazí stav „Checking“, krátce problikne hlášení „Disk Time Out“ a
 přibližně po jedné sekundě program korektně skončí návratem do BASICu.
@@ -960,28 +1247,41 @@ rozlišení:
 - modře jsou zobrazeny položky použitelné pro BSDOS,
 - červeně jsou zobrazeny položky, které pro BSDOS použitelné nejsou.
 
+V dual GUI 1.1 má kurzor přes celou šířku řádku vlastní zvýrazněné pozadí,
+ale barva textu zůstává zachována. Platná položka tedy zůstává modrá
+a neplatná položka červená i pod kurzorem.
+
 Uživatel tak na první pohled vidí, kterou partition lze vybrat a kterou ne.
 
 
 Identifikace zařízení a partition v katalogu BSDOS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Po instalaci je v titulku katalogu BSDOSu vidět také zdrojové zařízení
-a číslo partition.
+Ve verzi 1.1 je v horních rozích katalogu BSDOSu vidět aktivní zdrojové
+zařízení a číslo partition:
 
-EasySD používá označení:
+- levý horní roh: CF, S1 nebo S2,
+- pravý horní roh: P1, P2, P3 nebo P4.
 
-S1:Pn BSD 308
+Tyto informace již nejsou vkládány doprostřed původního textu
+„BS-DOS 308b * BUSY SOFT'19“. Původní text zůstává zachován a aktivní
+zařízení i partition jsou čitelné samostatně v rozích.
 
-EasyCF používá označení:
-
-CF:Pn BSD 308
-
-kde n je číslo použité partition. Označení zachovává původní rozlišení
-BSDOS 308/308b. Správné zobrazení zařízení i čísla partition bylo
-ověřeno na reálném hardwaru.
+Označení se aktualizuje při každém přepnutí pomocí Switcheru. Správné
+zobrazení CF, S1, S2 a P1–P4 bylo ověřeno na reálném hardwaru.
 
 Stav: PASS
+
+
+Zámek write protect v katalogu
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Každý BSDOS disk může mít v boot sektoru nastaven vlastní příznak write
+protect. Je-li aktivní, zobrazí se v katalogu znak zámku bezprostředně za
+číslem disku. Zámek se nezobrazuje za číslem adresáře ani v jiných textech.
+
+Stav zámku se zjišťuje pro právě zobrazovaný disk a funguje pro CF, SD1
+i SD2. Zobrazení bylo ověřeno na reálném MB03+.
 
 
 No data
@@ -994,8 +1294,12 @@ MBD/MBH image, program zobrazí stav odpovídající „No data“.
 Not Found
 ~~~~~~~~~
 
-EasySD zobrazí „Not Found“, pokud SD karta není dostupná nebo
+EasySD 1.0.1 zobrazí „Not Found“, pokud SD karta není dostupná nebo
 inicializace SD selže.
+
+EasySD 1.1 ponechá společnou obrazovku zobrazenou a u chybějícího slotu
+vypíše „not inserted“. V jeho čtyřech partition řádcích se zobrazí
+„No card“. Druhou vloženou kartu lze nadále normálně použít.
 
 
 Disk Time Out
@@ -1016,6 +1320,70 @@ aby se zbytečně neporušil obsah RAM.
 
 Toto chování bylo ověřeno také při spuštění EasySD přímo z flash bootu:
 stisk EDIT korektně ukončí EasySD a vrátí uživatele do BASICu.
+
+
+Aktualizovaný MB03+ BOOT pro SD1 a SD2
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Aktualizovaný MB03+ BOOT inicializuje oba sloty SD1 i SD2. Opravuje také
+návrat funkcí E v případě, že bylo naposledy aktivním zařízením SD2.
+Uživatelům EasySD 1.1 doporučujeme použít aktuální dual-SD BOOT ze
+samostatného projektu https://github.com/milan-stava/mb03plusboot.
+
+
+23. Přepínání CF, SD1 a SD2 ve verzi 1.1
+-----------------------------------------
+
+Soubor SWITCH_MENU.tap obsahuje jednoduché BASICové menu a společný
+strojový přepínač. Přepnutí probíhá za chodu bez resetu BSDOSu a bez
+ztráty obsahu běžné RAM.
+
+Menu nejprve zobrazí aktuální systém a dostupnost tří cílů:
+
+1 - CF
+2 - SD1
+3 - SD2
+0 - návrat do BASICu
+
+Není-li některý cíl v paměti připraven nebo není příslušná karta vložena,
+zobrazí se u něj text „NOT DETECTED“. Pokus o jeho výběr skončí hlášením
+„NOT DETECTED - SWITCH NOT POSSIBLE“ a aktivní systém se nezmění.
+
+Před úplnou instalací 1.1 umí menu rozpoznat také starší EasyHDD,
+EasySD 1.0 nebo samostatné EasyCF. Tyto stavy pouze oznámí a zobrazí
+„EasySD/EasyCF 1.1 not installed“; přepínání se v nich neprovede.
+
+Při úspěšném přepnutí Switcher:
+
+- zavolá službu BSDOS KILLX, která zneplatní cache posledního disku,
+- nastaví aktivní driverovou SRAM stránku,
+- u SD nastaví fyzický slot SD1 nebo SD2,
+- obnoví LBA vybrané partition příslušné karty,
+- aktualizuje označení CF/S1/S2 a P1–P4 v katalogu.
+
+KILLX je důležitý: bez vyčištění cache by po přepnutí mohl katalog nadále
+zobrazovat údaje předchozího zařízení nebo nesprávný disk.
+
+
+Strojové vstupy Switcheru
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Strojová část se načítá od adresy #8000:
+
+Adresa   Desítkově   Funkce
+-----------------------------------------------
+#8000    32768       přepnout na CF
+#8003    32771       přepnout na SD1
+#8007    32775       přepnout na SD2
+#800B    32779       vrátit aktuální systém v BC
+#800E    32782       vrátit masku dostupnosti v BC
+
+Maska dostupnosti používá bit 0 pro CF, bit 1 pro SD1 a bit 2 pro SD2.
+Přepínací vstupy vracejí BC=0 při úspěchu a BC=1, pokud cílové zařízení
+není dostupné.
+
+Přepínání, opakované katalogy, LOAD/SAVE, neprázdný příkaz .SEARCH,
+KILLX i zobrazení write protect byly ověřeny na reálném MB03+.
 
 ======================================================================
 PŘÍLOHA A – TESTOVÁNÍ A OVĚŘENÍ
@@ -1581,13 +1949,14 @@ ohledu chovají stejně.
 Stav: PASS
 
 
-ZÁVĚREČNÝ STAV HARDWAROVÝCH TESTŮ PRO 1.0
-------------------------------------------
+ZÁVĚREČNÝ STAV HARDWAROVÝCH TESTŮ PRO 1.0.1
+--------------------------------------------
 
 Po závěrečných regresních kontrolách 7. 9. 2026 jsou hlavní hardwarové
-varianty verze 1.0 ověřeny:
+varianty verze 1.0.1 ověřeny:
 
 EasySD / MB03+       - PASS
+EasySD / MB03+ Slim  - PASS
 EasySD / eLeMeNt ZX  - PASS
 EasyCF / MB03+       - PASS
 
@@ -1606,32 +1975,52 @@ Ověřeno je rovněž:
 - EDIT ukončení,
 - spuštění EasySD z flash bootu,
 - pokračování do AUTOEXE při flash bootu na MB03+,
-- identifikace zařízení a partition v katalogu BSDOS pomocí S1:Pn / CF:Pn.
+- původní identifikace zařízení a partition v katalogu pomocí S1:Pn / CF:Pn.
 
-Pro vydání 1.0 už není evidován žádný další nutný funkční test na reálném
-hardwaru. Zbývá dokončení dokumentace, HTML verze manuálu a příprava
-release na GitHubu.
+Pro vydání 1.0.1 už není evidován žádný další nutný funkční test na reálném
+hardwaru.
 
 
-POZNÁMKA K TÉTO PRACOVNÍ VERZI
--------------------------------
+ZÁVĚREČNÉ TESTY EASYSD/EASYCF 1.1 NA MB03+
+------------------------------------------
 
-Tato verze manuálu je společným dokumentem EasySD & EasyCF a je rozdělena
-na kratší seznamovací část a podrobnější technickou část.
+Finální instalátor a Switcher verze 1.1 byly ověřeny na reálném MB03+.
+Testy zahrnovaly:
 
-Po závěrečných testech 7. 9. 2026 byl odstraněn původní seznam nehotových
-hardwarových regresních testů. Bylo také potvrzeno finální chování
-parametru autoinstall:
+- instalaci kompatibilního EasyCF a následně EasySD 1.1,
+- detekci a použití SD1 i SD2,
+- konfiguraci pouze s jednou vloženou SD kartou,
+- automatický i ruční výběr partition,
+- osmipoložkový kurzor, ENTER, SPACE a EDIT,
+- přepínání CF -> SD1 -> SD2 -> CF za běhu,
+- odmítnutí zařízení označeného NOT DETECTED,
+- správné vyčištění cache službou KILLX,
+- opakované zobrazení katalogu po přepnutí,
+- změnu BSDOS disků 1–255,
+- LOAD a SAVE,
+- příkaz .SEARCH s neprázdným hledaným řetězcem,
+- zobrazení CF/S1/S2 a P1–P4 v rozích katalogu,
+- write-protect zámek pouze vedle čísla disku.
 
-0 = pokračovat bez čekání
-1 = čekat na klávesu
+Stav EasySD 1.1 s EasyCF na MB03+: PASS
+
+Implementace obsahuje také bezpečný fallback preferované partition.
+Konfigurační bajty dual_partition_sd1 a dual_partition_sd2 přijímají P1–P4;
+není-li hodnota v tomto rozsahu nebo není-li zvolená partition použitelná,
+vybere se první použitelná partition na stejné kartě.
+
+Aktualizovaný MB03+ BOOT inicializuje SD1 i SD2 a podporuje návrat přes
+funkci E také tehdy, když bylo naposledy aktivní SD2. Jde o samostatný
+projekt: https://github.com/milan-stava/mb03plusboot.
+
+
+POZNÁMKA K DOKUMENTACI
+----------------------
+
+Tento manuál společně popisuje EasySD 1.0.1, EasyCF 1.0.1 a rozšíření
+EasySD 1.1 pro MB03+. Části věnované FAT16/FAT32, přípravě médií a souvislosti
+MBD/MBH platí pro obě verze. Funkce SD2 a přepínání CF/SD1/SD2 jsou
+výslovně označeny jako vlastnosti MB03+ verze 1.1.
 
 Windows PREPARE_EASY_FAT32.bat byl prakticky ověřen jak s již existujícími
 metadata System Volume Information, tak na čerstvé FAT32 partition.
-
-TODO pro verzi 1.1:
-
-- doplnit kontrolu konfiguračního bajtu partition (#8008),
-- platný rozsah je 1–8,
-- hodnota větší než 8 nesmí vést k indexování mimo tabulku,
-- při neplatné hodnotě použít bezpečný fallback na první použitelnou partition.

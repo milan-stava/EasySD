@@ -1,6 +1,6 @@
-# EasySD / EasyCF 1.1 release notes
+# EasySD 1.1 release notes
 
-EasySD / EasyCF 1.1 is an MB03+ extension providing runtime switching between CF, SD1 and SD2 without a BSDOS reset.
+EasySD 1.1 is an MB03+ extension providing runtime switching between EasyCF, SD1 and SD2 without a BSDOS reset. There is no separate EasyCF 1.1 release.
 
 ## Highlights
 
@@ -24,7 +24,7 @@ EasySD / EasyCF 1.1 is an MB03+ extension providing runtime switching between CF
 
 ## Installation order
 
-1. Install compatible EasyCF 1.0.
+1. Install compatible EasyCF; the current distribution is EasyCF 1.0.1.
 2. Run `EasySD_1_1_INSTALL.tap`.
 3. Select or confirm the SD partitions.
 4. Load `SWITCH_MENU.tap` to switch devices while BSDOS is running.
@@ -33,12 +33,12 @@ EasySD / EasyCF 1.1 is an MB03+ extension providing runtime switching between CF
 
 This release targets MB03+ and BSDOS 3.08. Standalone eLeMeNt ZX and MB03+ Slim users should continue using EasySD 1.0.1.
 
-EasyCF 1.1 provides the same standalone CF functionality as EasyCF 1.0. Its only functional difference is the internal preparation for CF/SD1/SD2 runtime switching: a compatible bank-switching bridge and fixed interface. The internal identifier remains `EasyCF10`, so the installer checks both the identifier and the bridge before enabling EasySD 1.1.
+EasyCF 1.0 and EasyCF 1.0.1 have the same driver and the same CF functionality. The EasyCF 1.0.1 distribution differs only by adding two launcher TAP files for MB03+ Slim and standalone eLeMeNt ZX. EasySD 1.1 checks the existing internal `EasyCF10` identifier and the required bank-switching entry before enabling SD access; this compatibility check does not define a new EasyCF release.
 
 ## Verification
 
 The final installer and switcher were verified on real MB03+ hardware. Tests covered CF/SD1/SD2 switching, configurations with a missing SD card, repeated catalogues, LOAD/SAVE, non-empty `.SEARCH`, write-protection display and rejection of unavailable targets.
 
-## Known external limitation
+## MB03+ BOOT support
 
-The MB03+ BOOT `E` path does not yet initialize SD2 when SD2 was the last active device. This belongs to the separate MB03+ BOOT project and does not affect switching from `SWITCH_MENU.tap`.
+The updated MB03+ BOOT initializes both SD1 and SD2 and fixes return through BOOT function `E` when SD2 was the last active device. EasySD 1.1 users should use the current dual-SD BOOT from the separate [MB03+ BOOT project](https://github.com/milan-stava/mb03plusboot).
