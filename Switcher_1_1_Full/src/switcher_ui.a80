@@ -1,0 +1,222 @@
+        ORG #8800
+
+; Fast display helper for Switcher 1.1 Full
+; #8800 draw all 12 cached rows
+; #8803 draw one cached row, API_INDEX=#9000
+; #8806 copy API_TEXT -> selected cache record
+
+API_INDEX       equ #9000
+API_TEXT        equ #9006
+API_ACTIVE      equ #9021
+UI_SELECTED     equ #9024
+API_CACHE_BASE  equ #9100
+
+        jp draw_all
+        jp draw_one
+        jp sync_text
+
+draw_all
+        xor a
+.loop
+        push af
+        ld (API_INDEX),a
+        call draw_one
+        pop af
+        inc a
+        cp 12
+        jr c,.loop
+        ret
+
+draw_one
+        ld a,(API_INDEX)
+        cp 12
+        ret nc
+        ld c,a
+
+        add a,2
+        ld d,a
+        ld a,22
+        call putc
+        ld a,d
+        call putc
+        xor a
+        call putc
+
+        ld a,17
+        call putc
+        ld a,(UI_SELECTED)
+        cp c
+        ld a,0
+        jr nz,.paper_ready
+        ld a,7
+.paper_ready
+        call putc
+
+        ld a,19
+        call putc
+        ld a,1
+        call putc
+
+        ld a,16
+        call putc
+        ld a,6
+        call putc
+        ld a,(API_ACTIVE)
+        cp c
+        ld a,' '
+        jr nz,.marker_ready
+        ld a,'*'
+.marker_ready
+        call putc
+
+        ld a,c
+        call get_record_ptr
+        bit 1,(hl)
+        ld a,2
+        jr z,.ink_ready
+        ld a,5
+.ink_ready
+        ld d,a
+        ld a,16
+        call putc
+        ld a,d
+        call putc
+
+        ld a,c
+        cp 4
+        jr c,.label_cf
+        cp 8
+        jr c,.label_s1
+
+        ld a,'S'
+        call putc
+        ld a,'2'
+        call putc
+        ld a,'P'
+        call putc
+        ld a,c
+        sub 8
+        add a,'1'
+        call putc
+        ld a,' '
+        call putc
+        jr .label_done
+
+.label_s1
+        ld a,'S'
+        call putc
+        ld a,'1'
+        call putc
+        ld a,'P'
+        call putc
+        ld a,c
+        sub 4
+        add a,'1'
+        call putc
+        ld a,' '
+        call putc
+        jr .label_done
+
+.label_cf
+        ld a,'C'
+        call putc
+        ld a,'F'
+        call putc
+        ld a,'P'
+        call putc
+        ld a,c
+        add a,'1'
+        call putc
+        ld a,' '
+        call putc
+
+.label_done
+        ld de,6
+        add hl,de
+        push hl
+        ld b,26
+.scan_nonzero
+        ld a,(hl)
+        or a
+        jr nz,.normal_text
+        inc hl
+        djnz .scan_nonzero
+
+        pop hl
+        ld hl,empty_text
+        ld b,26
+.print_fixed
+        ld a,(hl)
+        call putc
+        inc hl
+        djnz .print_fixed
+        jr .row_done
+
+.normal_text
+        pop hl
+        ld b,26
+.print_normal
+        ld a,(hl)
+        or a
+        jr nz,.char_ready
+        ld a,' '
+.char_ready
+        call putc
+        inc hl
+        djnz .print_normal
+
+.row_done
+        ld a,17
+        call putc
+        xor a
+        call putc
+        ld a,19
+        call putc
+        xor a
+        call putc
+        ld a,16
+        call putc
+        ld a,7
+        call putc
+        ret
+
+sync_text
+        ld a,(API_INDEX)
+        cp 12
+        ret nc
+        call get_record_ptr
+        ld de,6
+        add hl,de
+        ex de,hl
+        ld hl,API_TEXT
+        ld bc,26
+        ldir
+        ret
+
+get_record_ptr
+        ld l,a
+        ld h,0
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        ld de,API_CACHE_BASE
+        add hl,de
+        ret
+
+putc
+        push bc
+        push de
+        push hl
+        rst #10
+        pop hl
+        pop de
+        pop bc
+        ret
+
+empty_text
+        db "EMPTY ENTRY               "
+
+        ASSERT $ < #9000
+        END

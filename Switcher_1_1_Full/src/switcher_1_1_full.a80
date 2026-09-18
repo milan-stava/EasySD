@@ -1,0 +1,1425 @@
+        ORG #8000
+
+;==============================================================================
+; EasySD / EasyCF Switcher 1.1 Full - ASM backend, ALPHA 5
+; Hood + ChatGPT, 2026-09-17
+;
+; Target:
+;   EasyCF 1.0.1 in page 98
+;   EasySD 1.1   in configurable page stored in BSDOS page 97:#0033
+;
+; Old 1.1 entry points are kept unchanged:
+;   USR #8000 = switch CF
+;   USR #8003 = switch SD1
+;   USR #8007 = switch SD2
+;   USR #800B = active system
+;   USR #800E = availability mask
+;
+; New FULL API:
+;   USR #8011 = GET_RECORD
+;   USR #8014 = WRITE_TEXT
+;   USR #8017 = ACTIVATE_RECORD
+;   USR #801A = GET_ACTIVE_RECORD
+;
+; BASIC/API workspace:
+;   #9000  INDEX       0..11
+;                       0..3  = CF  P1..P4
+;                       4..7  = SD1 P1..P4
+;                       8..11 = SD2 P1..P4
+;   #9001  INFO        output VDT info byte
+;   #9002  LBA[4]      output, little endian
+;   #9006  TEXT[26]    input/output VDT user text
+;   #9020  RESULT      last result code
+;   #9021  ACTIVE      active record 0..11, #FF = unknown
+;   #9022  VDT_ADDR    debug: last resolved VDT base (word)
+;   #9100..#927F CACHE 12 raw VDT records (12 x 32 bytes)
+;
+; RESULT / BC:
+;   0 = OK
+;   1 = EasySD/EasyCF 1.1 installation not available
+;   2 = bad INDEX
+;   3 = VDT not found / invalid
+;   4 = selected partition is not usable (INFO bit 1 = 0)
+;   5 = CF current_1st_sector patch not found
+;
+; VDT record, 32 bytes:
+;   +0      INFO
+;   +1..+4  LBA
+;   +5      reserved
+;   +6..31  user text (26 bytes)
+;
+; NOTE ALPHA 5:
+;   Complete backend for partition/LBA switching and 26-byte VDT descriptions.
+;   BSDOS catalogue line 1 text is stored directly at #0DC4..#0DDD.
+;   On ACTIVATE_RECORD the selected VDT text is copied there. If all 26 VDT
+;   bytes are zero, the catalogue shows "EMPTY ENTRY" padded with spaces.
+;   WRITE_TEXT also refreshes the catalogue immediately when editing the
+;   currently active record.
+;==============================================================================
+
+PAGE_BSDOS              equ 97
+PAGE_CF                 equ 98
+PAGE_SD_MIN_RAW          equ 102
+PAGE_SD_MAX_RAW          equ 128
+
+DOS_ACTIVE_PAGE         equ #001C
+DOS_ACTIVE_DEVICE       equ #0032
+DOS_PAGE_SD             equ #0033
+DOS_SD1_PARTITION       equ #0034
+DOS_SD2_PARTITION       equ #0035
+DOS_CF_PARTITION        equ #3C90
+DOS_INSTALL_SIGNATURE   equ #3C91
+
+DRIVER_LASTD            equ #00E3
+
+SD_CARD_SELECT          equ #0F12
+SD_SLOT_1               equ #FE
+SD_SLOT_2               equ #FD
+
+SD1_LBA_STORE           equ #3C90
+SD2_LBA_STORE           equ #3C94
+
+CURRENT_LBA_LOW         equ #02AB
+CURRENT_LBA_HIGH        equ #02AE
+
+CF_VDT_BASE             equ #1000       ; EasyCF 1.0.1: CF routines at #0F00, VDT aligned to next xx00
+
+CAT_DEVICE              equ #0DC1
+CAT_TEXT                equ #0DC4
+CAT_TEXT_LEN            equ 26
+CAT_PARTITION           equ #0DDF
+
+NORMAL_MAPPING          equ #40
+
+API_INDEX               equ #9000
+API_INFO                equ #9001
+API_LBA                 equ #9002
+API_TEXT                equ #9006
+API_RESULT              equ #9020
+API_ACTIVE              equ #9021
+API_VDT_ADDR            equ #9022
+API_CACHE_BASE          equ #9100
+
+;------------------------------------------------------------------------------
+; Compatibility jump table - exact addresses of Switcher 1.1
+;------------------------------------------------------------------------------
+
+ENTRY_CF
+        xor     a
+        jr      switch_start
+
+ENTRY_SD1
+        ld      a,1
+        jr      switch_start
+
+ENTRY_SD2
+        ld      a,2
+        jr      switch_start
+
+ENTRY_STATUS
+        jp      get_status
+
+ENTRY_AVAILABILITY
+        jp      get_availability
+
+;------------------------------------------------------------------------------
+; New FULL API jump table
+;------------------------------------------------------------------------------
+
+ENTRY_GET_RECORD
+        jp      api_get_record
+
+ENTRY_WRITE_TEXT
+        jp      api_write_text
+
+ENTRY_ACTIVATE_RECORD
+        jp      api_activate_record
+
+ENTRY_GET_ACTIVE_RECORD
+        jp      api_cache_all
+
+        ASSERT ENTRY_CF              = #8000
+        ASSERT ENTRY_SD1             = #8003
+        ASSERT ENTRY_SD2             = #8007
+        ASSERT ENTRY_STATUS          = #800B
+        ASSERT ENTRY_AVAILABILITY    = #800E
+        ASSERT ENTRY_GET_RECORD      = #8011
+        ASSERT ENTRY_WRITE_TEXT      = #8014
+        ASSERT ENTRY_ACTIVATE_RECORD = #8017
+        ASSERT ENTRY_GET_ACTIVE_RECORD = #801A
+
+;==============================================================================
+; Original Switcher 1.1 behaviour
+;==============================================================================
+
+switch_start
+        di
+        ld      (selected_device),a
+        call    detect_all
+        ld      b,a
+
+        ld      a,(selected_device)
+        or      a
+        jr      z,.check_cf
+        cp      2
+        jr      z,.check_sd2
+
+        bit     1,b
+        jr      nz,.detected
+        jp      switch_not_detected
+
+.check_sd2
+        bit     2,b
+        jr      nz,.detected
+        jp      switch_not_detected
+
+.check_cf
+        bit     0,b
+        jp      z,switch_not_detected
+
+.detected
+        ld      a,PAGE_BSDOS
+        out     (23),a
+        ld      a,#1E                  ; KILLX only after successful detection
+        rst     #20
+
+        ld      a,(selected_device)
+        or      a
+        jr      z,switch_cf
+        cp      2
+        jr      z,switch_sd2
+
+switch_sd1
+        ld      a,1
+        ld      (DOS_ACTIVE_DEVICE),a
+        ld      a,(DOS_SD1_PARTITION)
+        ld      h,'1'
+        ld      bc,SD1_LBA_STORE
+        ld      e,SD_SLOT_1
+        jr      switch_sd_common
+
+switch_sd2
+        ld      a,2
+        ld      (DOS_ACTIVE_DEVICE),a
+        ld      a,(DOS_SD2_PARTITION)
+        ld      h,'2'
+        ld      bc,SD2_LBA_STORE
+        ld      e,SD_SLOT_2
+
+switch_sd_common
+        add     a,'0'
+        ld      d,a
+        ld      a,e
+        ld      (selected_slot),a
+
+        ld      e,'P'
+        ld      (CAT_PARTITION),de
+        ld      l,'S'
+        ld      (CAT_DEVICE),hl
+
+        ld      h,b
+        ld      l,c
+
+        ld      a,(DOS_PAGE_SD)
+        ld      (DOS_ACTIVE_PAGE),a
+        out     (23),a
+
+        ld      a,(selected_slot)
+        ld      (SD_CARD_SELECT),a
+        jr      finish_sd
+
+switch_cf
+        ld      a,(DOS_CF_PARTITION)
+        add     a,'0'
+        ld      h,a
+        ld      l,'P'
+        ld      (CAT_PARTITION),hl
+
+        ld      hl,#4643                ; memory order "CF"
+        ld      (CAT_DEVICE),hl
+
+        xor     a
+        ld      (DOS_ACTIVE_DEVICE),a
+        ld      a,PAGE_CF
+        ld      (DOS_ACTIVE_PAGE),a
+        out     (23),a
+
+        xor     a
+        ld      (DRIVER_LASTD),a
+        jr      finish_ok
+
+finish_sd
+        xor     a
+        ld      (DRIVER_LASTD),a
+
+        ld      de,CURRENT_LBA_LOW
+        ld      bc,2
+        ldir
+        inc     de                       ; #02AD -> #02AE
+        ld      bc,2
+        ldir
+
+finish_ok
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ld      bc,0
+        ei
+        ret
+
+switch_not_detected
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ld      bc,1
+        ei
+        ret
+
+get_status
+        di
+        call    detect_all
+        ld      a,(current_device)
+        cp      #FF
+        call    z,detect_legacy_system
+        ld      c,a
+        ld      b,0
+        ei
+        ret
+
+get_availability
+        di
+        call    detect_all
+        ld      c,a
+        ld      b,0
+        ei
+        ret
+
+;==============================================================================
+; FULL API
+;==============================================================================
+
+;------------------------------------------------------------------------------
+; GET_RECORD
+; API_INDEX = 0..11
+; OUT:
+;   API_INFO
+;   API_LBA[4]
+;   API_TEXT[26]
+;   BC = RESULT
+;------------------------------------------------------------------------------
+
+api_get_record
+        di
+        call    full_load_state
+        jp      nz,api_error_install
+
+        ld      a,(API_INDEX)
+        call    full_get_record_ptr
+        jp      c,api_error_from_a
+
+        ld      a,(hl)
+        ld      (API_INFO),a
+
+        inc     hl
+        ld      de,API_LBA
+        ld      bc,4
+        ldir
+
+        inc     hl                       ; skip reserved byte +5
+        ld      de,API_TEXT
+        ld      bc,26
+        ldir
+
+        xor     a
+        jp      api_finish_a
+
+;------------------------------------------------------------------------------
+; WRITE_TEXT
+; API_INDEX = 0..11
+; API_TEXT[26] = exactly 26 bytes; BASIC may use zero padding.
+;------------------------------------------------------------------------------
+
+api_write_text
+        di
+        call    full_load_state
+        jp      nz,api_error_install
+
+        ld      a,(API_INDEX)
+        call    full_get_record_ptr
+        jp      c,api_error_from_a
+
+        ld      de,6
+        add     hl,de
+        ex      de,hl                     ; DE = VDT text
+        ld      hl,API_TEXT
+        ld      bc,26
+        ldir
+
+        ; If the edited record is currently active, update the visible BSDOS
+        ; catalogue description immediately.
+        call    full_active_index_from_saved
+        ld      b,a
+        ld      a,(selected_index)
+        cp      b
+        jr      nz,.write_done
+
+        ld      a,PAGE_BSDOS
+        out     (23),a
+        call    full_catalog_text
+
+.write_done
+        xor     a
+        jp      api_finish_a
+
+;------------------------------------------------------------------------------
+; ACTIVATE_RECORD
+; API_INDEX = 0..11
+;
+; Checks VDT INFO bit 1.
+; Changes device + partition and puts the selected VDT LBA directly into
+; current_1st_sector. SD also updates SD1_LBA_STORE / SD2_LBA_STORE so the old
+; #8003/#8007 entries continue using the new partition.
+;------------------------------------------------------------------------------
+
+api_activate_record
+        di
+        call    full_load_state
+        jp      nz,api_error_install
+
+        ld      a,(API_INDEX)
+        cp      12
+        jp      nc,api_error_bad_index
+        ld      (selected_index),a
+
+        ; For CF we must find its self-modifying current_1st_sector while the
+        ; old partition/LBA is still known.
+        cp      4
+        jr      nc,.not_cf
+
+        ld      a,PAGE_CF
+        out     (23),a
+        ld      de,EASYCF_ID
+        call    check_driver
+        jp      nz,api_error_install_mapped
+
+        call    full_find_cf_lba_patch
+        jr      c,.cf_patch_error
+
+.not_cf
+        ld      a,(selected_index)
+        call    full_get_record_ptr
+        jp      c,api_error_from_a
+
+        bit     1,(hl)
+        jp      z,api_error_unusable
+
+        ; Copy selected LBA and 26-byte description to stable RAM while the
+        ; driver page is mapped. After the 4-byte LBA HL points at reserved +5.
+        inc     hl
+        ld      de,API_LBA
+        ld      bc,4
+        ldir
+        inc     hl                       ; skip reserved byte +5 -> text +6
+        ld      de,API_TEXT
+        ld      bc,26
+        ldir
+
+        ; Keep the same safe switching semantics as the original 1.1 switcher:
+        ; KILLX only after the target record has been validated and its LBA saved.
+        ld      a,PAGE_BSDOS
+        out     (23),a
+        ld      a,#1E
+        rst     #20
+
+        ld      a,(selected_index)
+        cp      4
+        jr      c,.activate_cf
+        cp      8
+        jr      c,.activate_sd1
+        jr      .activate_sd2
+
+.cf_patch_error
+        ld      a,5
+        jp      api_finish_a
+
+.activate_cf
+        ; A = global index 0..3 -> partition 1..4
+        ld      a,(selected_index)
+        inc     a
+        ld      (selected_partition),a
+
+        ld      a,PAGE_BSDOS
+        out     (23),a
+
+        ld      a,(selected_partition)
+        ld      (DOS_CF_PARTITION),a
+
+        xor     a
+        ld      (DOS_ACTIVE_DEVICE),a
+        ld      a,PAGE_CF
+        ld      (DOS_ACTIVE_PAGE),a
+
+        call    full_catalog_cf
+        call    full_catalog_text
+
+        ld      a,PAGE_CF
+        out     (23),a
+
+        xor     a
+        ld      (DRIVER_LASTD),a
+
+        ; Write 4B LBA to operands found by full_find_cf_lba_patch.
+        ld      hl,API_LBA
+        ld      de,(cf_lba_low_patch)
+        ld      bc,2
+        ldir
+        ld      de,(cf_lba_high_patch)
+        ld      bc,2
+        ldir
+
+        xor     a
+        jp      api_finish_a
+
+.activate_sd1
+        ld      a,(selected_index)
+        sub     3                       ; 4..7 -> P1..P4
+        ld      (selected_partition),a
+        ld      a,1
+        ld      (selected_device),a
+        ld      a,SD_SLOT_1
+        ld      (selected_slot),a
+        ld      hl,SD1_LBA_STORE
+        ld      (selected_lba_store),hl
+        jr      full_activate_sd
+
+.activate_sd2
+        ld      a,(selected_index)
+        sub     7                       ; 8..11 -> P1..P4
+        ld      (selected_partition),a
+        ld      a,2
+        ld      (selected_device),a
+        ld      a,SD_SLOT_2
+        ld      (selected_slot),a
+        ld      hl,SD2_LBA_STORE
+        ld      (selected_lba_store),hl
+
+full_activate_sd
+        ld      a,PAGE_BSDOS
+        out     (23),a
+
+        ld      a,(selected_device)
+        ld      (DOS_ACTIVE_DEVICE),a
+
+        cp      2
+        jr      z,.save_sd2_part
+        ld      a,(selected_partition)
+        ld      (DOS_SD1_PARTITION),a
+        jr      .part_saved
+.save_sd2_part
+        ld      a,(selected_partition)
+        ld      (DOS_SD2_PARTITION),a
+.part_saved
+        ld      a,(saved_sd_page)
+        ld      (DOS_ACTIVE_PAGE),a
+
+        call    full_catalog_sd
+        call    full_catalog_text
+
+        ld      a,(saved_sd_page)
+        out     (23),a
+
+        ld      a,(selected_slot)
+        ld      (SD_CARD_SELECT),a
+
+        xor     a
+        ld      (DRIVER_LASTD),a
+
+        ; current_1st_sector, fixed by EasySD 1.1 ASSERTs.
+        ld      hl,API_LBA
+        ld      de,CURRENT_LBA_LOW
+        ld      bc,2
+        ldir
+        inc     de
+        ld      bc,2
+        ldir
+
+        ; Keep the old #8003/#8007 switch entries coherent.
+        ld      hl,API_LBA
+        ld      de,(selected_lba_store)
+        ld      bc,4
+        ldir
+
+        xor     a
+        jp      api_finish_a
+
+;------------------------------------------------------------------------------
+; GET_ACTIVE_RECORD
+; OUT API_ACTIVE = 0..11 or #FF
+;------------------------------------------------------------------------------
+
+api_get_active_record
+        di
+        call    full_load_state
+        jp      nz,api_error_install
+
+        ld      a,#FF
+        ld      (API_ACTIVE),a
+
+        ld      a,(current_device)
+        or      a
+        jr      z,.cf
+        cp      1
+        jr      z,.sd1
+        cp      2
+        jr      z,.sd2
+        xor     a
+        jp      api_finish_a
+
+.cf
+        ld      a,(saved_cf_partition)
+        call    full_valid_partition_a
+        jr      c,.unknown
+        dec     a
+        jr      .save
+.sd1
+        ld      a,(saved_sd1_partition)
+        call    full_valid_partition_a
+        jr      c,.unknown
+        add     a,3                       ; P1 -> 4
+        jr      .save
+.sd2
+        ld      a,(saved_sd2_partition)
+        call    full_valid_partition_a
+        jr      c,.unknown
+        add     a,7                       ; P1 -> 8
+        jr      .save
+.unknown
+        ld      a,#FF
+.save
+        ld      (API_ACTIVE),a
+        xor     a
+        jp      api_finish_a
+
+;==============================================================================
+; FULL helpers
+;==============================================================================
+
+;------------------------------------------------------------------------------
+; Read/validate EasySD 1.1 resident state from BSDOS page 97.
+; OUT Z = OK, NZ = not installed
+; Also saves current device/page/partitions.
+; Restores normal mapping before return.
+;------------------------------------------------------------------------------
+
+full_load_state
+        ld      a,PAGE_BSDOS
+        out     (23),a
+
+        ld      hl,(DOS_INSTALL_SIGNATURE)
+        ld      de,#5345                  ; "ES"
+        or      a
+        sbc     hl,de
+        jr      nz,.bad
+
+        ld      hl,(DOS_INSTALL_SIGNATURE+2)
+        ld      de,#3131                  ; "11"
+        or      a
+        sbc     hl,de
+        jr      nz,.bad
+
+        ld      a,(#001B)
+        cp      #3E
+        jr      nz,.bad
+        ld      a,(#001D)
+        cp      #D3
+        jr      nz,.bad
+        ld      a,(#001E)
+        cp      #17
+        jr      nz,.bad
+        ld      a,(#001F)
+        cp      #C9
+        jr      nz,.bad
+
+        ld      a,(DOS_ACTIVE_DEVICE)
+        ld      (current_device),a
+        ld      a,(DOS_PAGE_SD)
+        ld      (saved_sd_page),a
+        ld      a,(DOS_SD1_PARTITION)
+        ld      (saved_sd1_partition),a
+        ld      a,(DOS_SD2_PARTITION)
+        ld      (saved_sd2_partition),a
+        ld      a,(DOS_CF_PARTITION)
+        ld      (saved_cf_partition),a
+
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        xor     a
+        ret
+
+.bad
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ld      a,1
+        or      a
+        ret
+
+;------------------------------------------------------------------------------
+; Resolve API/global record.
+; IN  A = 0..11
+; OUT HL = record address in currently mapped driver bank
+;     CARRY clear = OK
+;     CARRY set, A = result code (1,2,3)
+;------------------------------------------------------------------------------
+
+full_get_record_ptr
+        cp      12
+        jr      nc,.bad_index
+
+        ld      (selected_index),a
+        cp      4
+        jr      c,.cf
+
+        ; SD records: global 4..11 -> local 0..7
+        sub     4
+        ld      (local_record),a
+
+        ld      a,(saved_sd_page)
+        cp      PAGE_SD_MIN_RAW
+        jr      c,.install_error
+        cp      PAGE_SD_MAX_RAW+1
+        jr      nc,.install_error
+
+        out     (23),a
+        ld      de,EASYSD_ID
+        call    check_driver
+        jr      nz,.install_error_mapped
+
+        call    full_find_sd_vdt
+        jr      c,.vdt_error_mapped
+
+        ld      (API_VDT_ADDR),hl
+        ld      a,(local_record)
+        call    full_add_record_offset
+        or      a                       ; clear carry
+        ret
+
+.cf
+        ld      (local_record),a
+        ld      a,PAGE_CF
+        out     (23),a
+        ld      de,EASYCF_ID
+        call    check_driver
+        jr      nz,.install_error_mapped
+
+        ld      hl,CF_VDT_BASE
+        call    full_validate_vdt4
+        jr      c,.vdt_error_mapped
+
+        ld      hl,CF_VDT_BASE
+        ld      (API_VDT_ADDR),hl
+        ld      a,(local_record)
+        call    full_add_record_offset
+        or      a
+        ret
+
+.bad_index
+        ld      a,2
+        scf
+        ret
+
+.install_error_mapped
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+.install_error
+        ld      a,1
+        scf
+        ret
+
+.vdt_error_mapped
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ld      a,3
+        scf
+        ret
+
+;------------------------------------------------------------------------------
+; HL = base, A = record number; return HL += A*32.
+;------------------------------------------------------------------------------
+
+full_add_record_offset
+        ld      e,a
+        ld      d,0
+        ex      de,hl                    ; HL = index, DE = base
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl
+        add     hl,hl                    ; *32
+        add     hl,de
+        ret
+
+;------------------------------------------------------------------------------
+; CF VDT v1.0.1 is fixed at #1000.
+; Validate four records structurally:
+;   reserved high INFO nibble must be zero
+;   reserved byte +5 must be zero
+; CARRY = invalid
+;------------------------------------------------------------------------------
+
+full_validate_vdt4
+        ld      b,4
+.loop
+        ld      a,(hl)
+        and     #F0
+        jr      nz,.bad
+
+        push    hl
+        ld      de,5
+        add     hl,de
+        ld      a,(hl)
+        pop     hl
+        or      a
+        jr      nz,.bad
+
+        ld      de,32
+        add     hl,de
+        djnz    .loop
+        or      a
+        ret
+.bad
+        scf
+        ret
+
+;------------------------------------------------------------------------------
+; Locate EasySD VDT without hardcoding its assembler-dependent address.
+;
+; EasySD 1.1 keeps the selected SD1/SD2 LBA at #3C90/#3C94 in the driver
+; page. We scan aligned xx00 candidates and require their selected record(s)
+; to contain the same four bytes. This keeps the switcher independent of the
+; exact length of SD_DRIVER.
+;
+; OUT HL = VDT base, carry clear
+;     carry set = not found
+;------------------------------------------------------------------------------
+
+full_find_sd_vdt
+        ld      hl,#1000
+
+.next_candidate
+        push    hl
+        call    full_validate_vdt8
+        pop     hl
+        jr      c,.next
+
+        ld      a,(saved_sd1_partition)
+        call    full_valid_partition_a
+        jr      c,.skip_sd1
+
+        push    hl
+        dec     a
+        call    full_add_record_offset
+        inc     hl
+        ld      de,SD1_LBA_STORE
+        call    full_compare4
+        pop     hl
+        jr      nz,.next
+
+.skip_sd1
+        ld      a,(saved_sd2_partition)
+        call    full_valid_partition_a
+        jr      c,.skip_sd2
+
+        push    hl
+        dec     a
+        add     a,4
+        call    full_add_record_offset
+        inc     hl
+        ld      de,SD2_LBA_STORE
+        call    full_compare4
+        pop     hl
+        jr      nz,.next
+
+.skip_sd2
+        ; At least one selected partition must be valid, otherwise an all-zero
+        ; aligned page could look like a VDT.
+        ld      a,(saved_sd1_partition)
+        call    full_valid_partition_a
+        jr      nc,.found
+        ld      a,(saved_sd2_partition)
+        call    full_valid_partition_a
+        jr      nc,.found
+        jr      .fail
+
+.next
+        ld      a,h
+        inc     a
+        ld      h,a
+        ld      l,0
+        cp      #30                     ; scan #1000..#2F00
+        jr      c,.next_candidate
+
+.fail
+        scf
+        ret
+
+.found
+        or      a
+        ret
+
+;------------------------------------------------------------------------------
+; Structural validation of 8 SD records.
+;------------------------------------------------------------------------------
+
+full_validate_vdt8
+        ld      b,8
+.loop
+        ld      a,(hl)
+        and     #F0
+        jr      nz,.bad
+
+        push    hl
+        ld      de,5
+        add     hl,de
+        ld      a,(hl)
+        pop     hl
+        or      a
+        jr      nz,.bad
+
+        ld      de,32
+        add     hl,de
+        djnz    .loop
+        or      a
+        ret
+.bad
+        scf
+        ret
+
+;------------------------------------------------------------------------------
+; A partition number. Carry clear = 1..4, carry set = invalid.
+; A is preserved.
+;------------------------------------------------------------------------------
+
+full_valid_partition_a
+        cp      1
+        jr      c,.bad
+        cp      5
+        jr      nc,.bad
+        or      a
+        ret
+.bad
+        scf
+        ret
+
+;------------------------------------------------------------------------------
+; Compare 4 bytes: HL vs DE. Z = equal.
+; Preserves HL/DE after comparison only conceptually not required by callers.
+;------------------------------------------------------------------------------
+
+full_compare4
+        ld      b,4
+.loop
+        ld      a,(de)
+        cp      (hl)
+        ret     nz
+        inc     hl
+        inc     de
+        djnz    .loop
+        xor     a
+        ret
+
+;------------------------------------------------------------------------------
+; Find EasyCF 1.0.1 current_1st_sector self-modifying operands.
+;
+; Expected instruction:
+;       LD HL,<low16>    21 ll hh
+;       LD DE,<high16>   11 ll hh
+;       CALL ...         CD ...
+;
+; We additionally require the four immediate bytes to equal the LBA belonging
+; to the OLD saved CF partition, so a false positive in #0090..#0382 is very
+; unlikely.
+;
+; OUT:
+;   cf_lba_low_patch  = address of low16 operand
+;   cf_lba_high_patch = address of high16 operand
+;   carry clear = found
+;------------------------------------------------------------------------------
+
+full_find_cf_lba_patch
+        ld      hl,CF_VDT_BASE
+        call    full_validate_vdt4
+        jr      c,.fail
+
+        ld      a,(saved_cf_partition)
+        call    full_valid_partition_a
+        jr      c,.fail
+
+        dec     a
+        ld      hl,CF_VDT_BASE
+        call    full_add_record_offset
+        inc     hl
+
+        ld      de,cf_expected_lba
+        ld      bc,4
+        ldir
+
+        ld      hl,#0090
+
+.scan
+        ld      a,(hl)
+        cp      #21
+        jr      nz,.next
+
+        push    hl
+        inc     hl
+        ld      de,cf_expected_lba
+        ld      b,2
+        call    full_compare_n
+        jr      nz,.candidate_bad
+
+        ; HL now points after first two immediate bytes = opcode LD DE.
+        ld      a,(hl)
+        cp      #11
+        jr      nz,.candidate_bad
+        inc     hl
+
+        ld      de,cf_expected_lba+2
+        ld      b,2
+        call    full_compare_n
+        jr      nz,.candidate_bad
+
+        ; HL now points at CALL opcode.
+        ld      a,(hl)
+        cp      #CD
+        jr      nz,.candidate_bad
+
+        pop     hl
+        inc     hl
+        ld      (cf_lba_low_patch),hl
+        ld      de,3
+        add     hl,de
+        ld      (cf_lba_high_patch),hl
+        or      a
+        ret
+
+.candidate_bad
+        pop     hl
+
+.next
+        inc     hl
+        ld      a,h
+        cp      #04
+        jr      c,.scan
+
+.fail
+        scf
+        ret
+
+; B-byte compare, HL and DE advanced. Z if equal.
+full_compare_n
+.loop
+        ld      a,(de)
+        cp      (hl)
+        ret     nz
+        inc     hl
+        inc     de
+        djnz    .loop
+        xor     a
+        ret
+
+;------------------------------------------------------------------------------
+; Catalogue fields in BSDOS page 97.
+;   #0DC1..#0DC2 device (CF / S1 / S2)
+;   #0DC3         SPACE control byte already present in BSDOS
+;   #0DC4..#0DDD  26-character description
+;   #0DDF..       partition field used by Switcher 1.1
+;------------------------------------------------------------------------------
+
+; BSDOS page 97 must be mapped. API_TEXT contains exactly 26 bytes.
+; If all bytes are zero, show EMPTY ENTRY. Otherwise copy all 26 bytes and
+; translate zero padding to spaces for clean fixed-width catalogue output.
+full_catalog_text
+        ld      hl,API_TEXT
+        ld      b,CAT_TEXT_LEN
+.check_nonzero
+        ld      a,(hl)
+        or      a
+        jr      nz,.normal_text
+        inc     hl
+        djnz    .check_nonzero
+
+        ld      hl,EMPTY_ENTRY_TEXT
+        ld      de,CAT_TEXT
+        ld      bc,CAT_TEXT_LEN
+        ldir
+        ret
+
+.normal_text
+        ld      hl,API_TEXT
+        ld      de,CAT_TEXT
+        ld      b,CAT_TEXT_LEN
+.copy_loop
+        ld      a,(hl)
+        or      a
+        jr      nz,.store
+        ld      a,' '
+.store
+        ld      (de),a
+        inc     hl
+        inc     de
+        djnz    .copy_loop
+        ret
+
+; Compute the current global record index from state saved by full_load_state.
+; OUT A = 0..11 or #FF. Does not change memory mapping.
+full_active_index_from_saved
+        ld      a,(current_device)
+        or      a
+        jr      z,.cf
+        cp      1
+        jr      z,.sd1
+        cp      2
+        jr      z,.sd2
+        ld      a,#FF
+        ret
+.cf
+        ld      a,(saved_cf_partition)
+        call    full_valid_partition_a
+        jr      c,.unknown
+        dec     a
+        ret
+.sd1
+        ld      a,(saved_sd1_partition)
+        call    full_valid_partition_a
+        jr      c,.unknown
+        add     a,3                       ; P1..P4 -> 4..7
+        ret
+.sd2
+        ld      a,(saved_sd2_partition)
+        call    full_valid_partition_a
+        jr      c,.unknown
+        add     a,7                       ; P1..P4 -> 8..11
+        ret
+.unknown
+        ld      a,#FF
+        ret
+
+full_catalog_cf
+        ld      a,(selected_partition)
+        add     a,'0'
+        ld      h,a
+        ld      l,'P'
+        ld      (CAT_PARTITION),hl
+        ld      hl,#4643                  ; "CF" in memory order
+        ld      (CAT_DEVICE),hl
+        ret
+
+full_catalog_sd
+        ld      a,(selected_partition)
+        add     a,'0'
+        ld      d,a
+        ld      e,'P'
+        ld      (CAT_PARTITION),de
+
+        ld      a,(selected_device)
+        add     a,'0'
+        ld      h,a
+        ld      l,'S'
+        ld      (CAT_DEVICE),hl
+        ret
+
+;------------------------------------------------------------------------------
+; API error/finish
+;------------------------------------------------------------------------------
+
+api_error_install_mapped
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+api_error_install
+        ld      a,1
+        jp      api_finish_a
+
+api_error_bad_index
+        ld      a,2
+        jp      api_finish_a
+
+api_error_unusable
+        ld      a,4
+        jp      api_finish_a
+
+api_error_from_a
+        ; A already carries the result code from full_get_record_ptr.
+        jp      api_finish_a
+
+api_finish_a
+        ld      (API_RESULT),a
+        ld      c,a
+        ld      b,0
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ei
+        ret
+
+;==============================================================================
+; Original Switcher 1.1 detection
+;==============================================================================
+
+; OUT A = mask: bit0 CF, bit1 SD1, bit2 SD2.
+; Always restores #40 mapping.
+detect_all
+        xor     a
+        ld      (availability_mask),a
+        dec     a
+        ld      (current_device),a
+
+        ld      a,PAGE_BSDOS
+        out     (23),a
+
+        ld      hl,(DOS_INSTALL_SIGNATURE)
+        ld      de,#5345
+        or      a
+        sbc     hl,de
+        jp      nz,.restore
+
+        ld      hl,(DOS_INSTALL_SIGNATURE+2)
+        ld      de,#3131
+        or      a
+        sbc     hl,de
+        jp      nz,.restore
+
+        ld      a,(#001B)
+        cp      #3E
+        jp      nz,.restore
+        ld      a,(#001D)
+        cp      #D3
+        jp      nz,.restore
+        ld      a,(#001E)
+        cp      #17
+        jp      nz,.restore
+        ld      a,(#001F)
+        cp      #C9
+        jp      nz,.restore
+
+        ld      a,(DOS_ACTIVE_DEVICE)
+        cp      3
+        jr      nc,.active_saved
+        ld      (current_device),a
+.active_saved
+        ld      a,(DOS_PAGE_SD)
+        ld      (saved_sd_page),a
+        ld      a,(DOS_SD1_PARTITION)
+        ld      (saved_sd1_partition),a
+        ld      a,(DOS_SD2_PARTITION)
+        ld      (saved_sd2_partition),a
+        ld      a,(DOS_CF_PARTITION)
+        ld      (saved_cf_partition),a
+
+        ; CF: valid selected partition + EasyCF10 + 1.1 banking bridge.
+        cp      1
+        jr      c,.check_sd
+        cp      5
+        jr      nc,.check_sd
+
+        ld      a,PAGE_CF
+        out     (23),a
+        ld      de,EASYCF_ID
+        call    check_driver
+        jr      nz,.check_sd
+
+        ld      a,1
+        ld      (availability_mask),a
+
+.check_sd
+        ld      a,(saved_sd_page)
+        cp      PAGE_SD_MIN_RAW
+        jr      c,.restore
+        cp      PAGE_SD_MAX_RAW+1
+        jr      nc,.restore
+
+        out     (23),a
+        ld      de,EASYSD_ID
+        call    check_driver
+        jr      nz,.restore
+
+        ld      a,(saved_sd1_partition)
+        cp      1
+        jr      c,.check_sd2
+        cp      5
+        jr      nc,.check_sd2
+        ld      a,(availability_mask)
+        or      2
+        ld      (availability_mask),a
+
+.check_sd2
+        ld      a,(saved_sd2_partition)
+        cp      1
+        jr      c,.restore
+        cp      5
+        jr      nc,.restore
+        ld      a,(availability_mask)
+        or      4
+        ld      (availability_mask),a
+
+.restore
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ld      a,(availability_mask)
+        ret
+
+; If 1.1 is not installed, identify a legacy standalone driver in page 98.
+; OUT A=3 EasyHDD, 4 EasySD 1.0, 5 EasyCF, #FF unknown.
+detect_legacy_system
+        ld      a,PAGE_CF
+        out     (23),a
+
+        ld      de,EASYCF_ID
+        call    check_id
+        ld      a,5
+        jr      z,.save
+
+        ld      de,EASYSD_ID
+        call    check_id
+        ld      a,4
+        jr      z,.save
+
+        ld      de,EASYHDD_207_ID
+        call    check_id
+        ld      a,3
+        jr      z,.save
+
+        ld      de,EASYHDD_OLD_ID
+        call    check_id
+        ld      a,3
+        jr      z,.save
+
+        ld      a,#FF
+
+.save
+        ld      (current_device),a
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ld      a,(current_device)
+        ret
+
+; DE = expected 8-byte identifier. Z = compatible driver.
+check_driver
+        call    check_id
+        ret     nz
+
+        ld      hl,#001B
+        ld      de,DRIVER_BRIDGE_SIGNATURE
+        ld      b,6
+
+compare_bytes
+        ld      a,(de)
+        cp      (hl)
+        ret     nz
+        inc     de
+        inc     hl
+        djnz    compare_bytes
+        ret
+
+; DE = expected 8-byte identifier at offset #0008.
+check_id
+        ld      hl,#0008
+        ld      b,8
+        jr      compare_bytes
+
+;==============================================================================
+; Data
+;==============================================================================
+
+EASYCF_ID               db "EasyCF10"
+EASYSD_ID               db "EasySD10"
+EASYHDD_207_ID          db "HddEH207"
+EASYHDD_OLD_ID          db "HddDrive"
+DRIVER_BRIDGE_SIGNATURE db #3E,#61,#D3,#17,#18,#6F
+EMPTY_ENTRY_TEXT        db "EMPTY ENTRY               "   ; exactly 26 bytes
+
+selected_device         db 0
+selected_slot           db 0
+selected_index          db 0
+selected_partition      db 0
+local_record            db 0
+
+availability_mask       db 0
+current_device          db #FF
+saved_sd_page           db 0
+saved_sd1_partition     db 0
+saved_sd2_partition     db 0
+saved_cf_partition      db 0
+
+selected_lba_store      dw 0
+cf_lba_low_patch        dw 0
+cf_lba_high_patch       dw 0
+cf_expected_lba         db 0,0,0,0
+
+
+;==============================================================================
+; FULL cache helper
+;==============================================================================
+; ENTRY_GET_ACTIVE_RECORD (#801A) keeps its original semantics, but before
+; returning ACTIVE it now refreshes a contiguous 12-record cache for BASIC:
+;   #9100..#917F = CF  P1..P4  (4 x 32 B)
+;   #9180..#927F = SD1 P1..P4 + SD2 P1..P4 (8 x 32 B)
+; This means the BASIC frontend needs only one USR call at startup instead of
+; 12 GET_RECORD calls and never touches live VDT banks directly.
+
+api_cache_all
+        di
+        call    full_load_state
+        jp      nz,.install_error
+
+        ; CF: verify driver + VDT and copy four raw VDT records.
+        ld      a,PAGE_CF
+        out     (23),a
+        ld      de,EASYCF_ID
+        call    check_driver
+        jp      nz,.mapped_install_error
+
+        ld      hl,CF_VDT_BASE
+        call    full_validate_vdt4
+        jp      c,.mapped_vdt_error
+
+        ld      hl,CF_VDT_BASE
+        ld      de,API_CACHE_BASE
+        ld      bc,4*32
+        ldir
+
+        ; SD: page is already known from full_load_state. Locate VDT once and
+        ; copy all eight records in one LDIR.
+        ld      a,(saved_sd_page)
+        out     (23),a
+        ld      de,EASYSD_ID
+        call    check_driver
+        jp      nz,.mapped_install_error
+
+        call    full_find_sd_vdt
+        jp      c,.mapped_vdt_error
+
+        ld      de,API_CACHE_BASE+4*32
+        ld      bc,8*32
+        ldir
+
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        jp      api_get_active_record      ; original semantics + API_ACTIVE
+
+.install_error
+        ld      a,1
+        jp      api_finish_a
+
+.mapped_install_error
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ld      a,1
+        jp      api_finish_a
+
+.mapped_vdt_error
+        ld      a,NORMAL_MAPPING
+        out     (23),a
+        ld      a,3
+        jp      api_finish_a
+
+; Keep code/data below BASIC workspace.
+        ASSERT $ < API_INDEX
+
+        END
