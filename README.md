@@ -82,6 +82,11 @@ The 1.1 build produces:
 
 - `EasySD_1_1_INSTALL.tap`
 - `SWITCH_MENU.tap`
+- `FULL_SWITCHER_1_1.bin`
+
+The FULL Switcher sources are stored as `FULL_SWITCHER_1_1.bas` and
+`FULL_SWITCHER_1_1.a80`. The release package combines the tokenized BASIC
+frontend and the 2924-byte machine-code backend into `FULL_SWITCHER_1_1.tap`.
 
 Assembler listings, raw binaries and TAP files are build artifacts and are excluded from Git.
 

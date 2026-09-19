@@ -20,6 +20,9 @@ EasySD / EasyCF 1.1 is an MB03+ extension providing runtime switching between CF
 
 - `EasySD_1_1_INSTALL.tap` - MB03+ installer
 - `SWITCH_MENU.tap` - BASIC CF/SD1/SD2 switcher with machine-code backend
+- `FULL_SWITCHER_1_1.tap` - full CF/SD1/SD2 and P1-P4 switcher with VDT name editor
+- `FULL_SWITCHER_1_1.bas` - readable ZX BASIC source of the FULL Switcher
+- `FULL_SWITCHER_1_1.a80` - machine-code backend and fast renderer source
 - `EasySD_EasyCF_v1.1.zip` - complete release package
 
 ## Installation order
