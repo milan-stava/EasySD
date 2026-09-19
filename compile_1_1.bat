@@ -17,10 +17,10 @@ sjasmplus --lst=SWITCH_ALL.lst --raw=SWITCH_ALL.bin switch_device_unified.a80
 if errorlevel 1 goto :error_switch
 if not exist SWITCH_ALL.bin goto :missing_switch
 
-del /q FULL_SWITCHER_1_1.bin FULL_SWITCHER_1_1.lst 2>nul
-sjasmplus --lst=FULL_SWITCHER_1_1.lst --raw=FULL_SWITCHER_1_1.bin FULL_SWITCHER_1_1.a80
+del /q FULL_SWITCHER_1_1\FULL_SWITCHER_1_1.bin FULL_SWITCHER_1_1\FULL_SWITCHER_1_1.lst 2>nul
+sjasmplus --lst=FULL_SWITCHER_1_1\FULL_SWITCHER_1_1.lst --raw=FULL_SWITCHER_1_1\FULL_SWITCHER_1_1.bin FULL_SWITCHER_1_1\FULL_SWITCHER_1_1.a80
 if errorlevel 1 goto :error_full_switch
-if not exist FULL_SWITCHER_1_1.bin goto :missing_full_switch
+if not exist FULL_SWITCHER_1_1\FULL_SWITCHER_1_1.bin goto :missing_full_switch
 
 python make_1_1_tap.py
 if errorlevel 1 goto :error_taps
@@ -33,7 +33,7 @@ echo   BUILD 1.1 OK
 echo ========================================
 echo   EasySD_1_1_INSTALL.tap
 echo   SWITCH_MENU.tap
-echo   FULL_SWITCHER_1_1.bin
+echo   FULL_SWITCHER_1_1\FULL_SWITCHER_1_1.bin
 echo ========================================
 popd
 exit /b 0
