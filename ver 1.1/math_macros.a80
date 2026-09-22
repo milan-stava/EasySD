@@ -1,0 +1,116 @@
+;==============================================================================
+; EasySD - matematicka makra
+; SjASMPlus 1.20.3
+;
+; Tento soubor pouze DEFINUJE makra. Sam o sobe negeneruje zadny kod.
+; Makra obsahuji pouze telo rutiny. Navesti rutiny se uvede pri instanci:
+;
+;   MUL32x8:
+;           MATH_MUL32x8
+;
+; Lokalni navesti zacinajici teckou jsou pro kazdou expanzi makra samostatna.
+;==============================================================================
+;seznam rutin:
+;1) MUL32x8	nasobeni DEHL x A ->DEHL
+;2) ADD32_16	přičtení 16 bitoveho cisla, DEHL=DEHL+BC
+;3) SUB32_8	odečtení 8 bitoveho cisla, DEHL=DEHL-A
+;4) ADD32_32	sečtení dvou 32 bitových čísel, DEHL=první číslo, DE'HL'=druhé číslo
+;*************************************************************************************
+        MACRO MATH_MUL32x8
+        push    ix
+
+        ld      (.value),hl
+        ld      (.value+2),de
+
+        ld      b,a
+        ld      ixl,8
+
+        ld      de,0
+        ld      hl,0
+
+.loop:
+        add     hl,hl
+        rl      e
+        rl      d
+
+        sla     b
+        jr      nc,.next
+
+        ld      a,(.value)
+        add     a,l
+        ld      l,a
+
+        ld      a,(.value+1)
+        adc     a,h
+        ld      h,a
+
+        ld      a,(.value+2)
+        adc     a,e
+        ld      e,a
+
+        ld      a,(.value+3)
+        adc     a,d
+        ld      d,a
+
+.next:
+        dec     ixl
+        jr      nz,.loop
+
+        pop     ix
+        ret
+
+.value:
+        ds      4
+        ENDM
+
+
+        MACRO MATH_ADD32_16
+        add     hl,bc
+        ret     nc
+
+        inc     de
+        ret
+        ENDM
+
+
+        MACRO MATH_SUB32_8
+        ld      b,a
+
+        ld      a,l
+        sub     b
+        ld      l,a
+
+        ld      a,h
+        sbc     a,0
+        ld      h,a
+
+        ld      a,e
+        sbc     a,0
+        ld      e,a
+
+        ld      a,d
+        sbc     a,0
+        ld      d,a
+
+        ret
+        ENDM
+
+
+        MACRO MATH_ADD32_32
+        exx
+
+        push    de
+        push    hl
+
+        exx
+
+        pop     bc
+        add     hl,bc
+
+        pop     bc
+
+        ex      de,hl
+        adc     hl,bc
+        ex      de,hl
+        ret
+        ENDM

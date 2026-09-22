@@ -1,0 +1,187 @@
+;seznam rutin:
+;1) MUL32x8	nasobeni DEHL x A ->DEHL
+;2) ADD32_16	přičtení 16 bitoveho cisla, DEHL=DEHL+BC
+;3) SUB32_8	odečtení 8 bitoveho cisla, DEHL=DEHL-A
+;4) ADD32_32	sečtení dvou 32 bitových čísel, DEHL=první číslo, DE'HL'=druhé číslo
+;*************************************************************************************
+
+;1) MUL32x8	nasobeni DEHL x A ->DEHL
+;==============================================================================
+; MUL32x8
+;
+; Vstup:
+;   DEHL = 32bitové číslo
+;   A    = 8bitový násobitel
+;
+; Výstup:
+;   DEHL = spodních 32 bitů výsledku
+;
+; Přetečení nad 32 bitů se zahodí.
+;
+; Mění:
+;   AF, BC, DE, HL, IX (pushuju, popuju, takže ok)
+;==============================================================================
+
+MUL32x8:
+	push	ix
+
+        ld      (MUL32_VALUE),hl
+        ld      (MUL32_VALUE+2),de
+
+        ld      b,a              ; násobitel
+        ld      ixl,8            ; osm bitů
+
+        ld      de,0             ; výsledek = 0
+        ld      hl,0
+
+MUL32x8_LOOP:
+        ; DEHL = DEHL * 2
+
+        add     hl,hl
+        rl      e
+        rl      d
+
+        ; Další bit násobitele do Carry
+
+        sla     b
+        jr      nc,MUL32x8_NEXT
+
+        ; Přičtení původního 32bitového čísla
+
+        ld      a,(MUL32_VALUE)
+        add     a,l
+        ld      l,a
+
+        ld      a,(MUL32_VALUE+1)
+        adc     a,h
+        ld      h,a
+
+        ld      a,(MUL32_VALUE+2)
+        adc     a,e
+        ld      e,a
+
+        ld      a,(MUL32_VALUE+3)
+        adc     a,d
+        ld      d,a
+
+        ; Carry z nejvyššího bajtu se úmyslně zahodí
+
+MUL32x8_NEXT:
+        dec     ixl
+        jr      nz,MUL32x8_LOOP
+	
+	pop	ix
+
+        ret
+
+
+MUL32_VALUE:
+        ds      4
+
+
+
+;2) ADD32_16	přičtení 16 bitoveho cisla, DEHL=DEHL+BC
+;in=HLDE, BC, out=HLDE (HL=nizsi, DE=vyssi)
+;==============================================================================
+; ADD32_16
+;
+; Vstup:
+;   DEHL = 32bitové číslo
+;   BC   = 16bitové číslo
+;
+; Výstup:
+;   DEHL = DEHL + BC
+;
+; Mění:
+;   AF, DE, HL
+;
+; BC zůstává zachováno.
+;==============================================================================
+
+ADD32_16:
+        add     hl,bc
+        ret     nc
+
+        inc     de
+        ret
+
+
+;3) SUB32_8	odečtení 8 bitoveho cisla, DEHL=DEHL-A
+;==============================================================================
+; SUB32_8
+;
+; Vstup:
+;   DEHL = 32bitové číslo
+;   A    = 8bitové číslo
+;
+; Výstup:
+;   DEHL = DEHL - A
+;
+; Mění:
+;   AF, B, DE, HL
+;==============================================================================
+
+SUB32_8:
+        ld      b,a
+
+        ld      a,l
+        sub     b
+        ld      l,a
+
+        ld      a,h
+        sbc     a,0
+        ld      h,a
+
+        ld      a,e
+        sbc     a,0
+        ld      e,a
+
+        ld      a,d
+        sbc     a,0
+        ld      d,a
+
+        ret
+
+
+
+;4) ADD32_32	sečtení dvou 32 bitových čísel, DEHL=první číslo, DE'HL'=druhé číslo
+;==============================================================================
+; ADD32_32
+;
+; Vstup:
+;   DEHL   = první 32bitové číslo
+;   DE'HL' = druhé 32bitové číslo
+;
+; Výstup:
+;   DEHL = součet
+;
+;   DE'HL' zůstává zachováno.
+;
+; Mění:
+;   AF, BC, DE, HL
+;
+; Carry po návratu:
+;   0 = bez přetečení přes 32 bitů
+;   1 = přetečení přes 32 bitů
+;==============================================================================
+
+ADD32_32:
+        exx
+
+        push    de              ; horních 16 bitů druhého čísla
+        push    hl              ; dolních 16 bitů druhého čísla
+
+        exx
+
+        pop     bc              ; BC = spodních 16 bitů druhého čísla
+        add     hl,bc
+
+        pop     bc              ; BC = horních 16 bitů druhého čísla
+
+        ex      de,hl           ; HL = horních 16 bitů prvního čísla
+                                ; DE = spodních 16 bitů výsledku
+
+        adc     hl,bc           ; horní části + přenos ze spodní části
+
+        ex      de,hl           ; výsledek opět do DEHL
+        ret

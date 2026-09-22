@@ -1,0 +1,23 @@
+# EasySD - jednotne konce radku pro Windows a Linux
+
+* text=auto
+
+# Zdrojove a textove soubory
+*.a80 text eol=lf
+*.asm text eol=lf
+*.txt text eol=lf
+*.py  text eol=lf
+*.md  text eol=lf
+
+# Windows skripty
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binarni soubory
+*.bin binary
+*.rom binary
+*.tap binary
+*.sna binary
+*.cde binary
+*.sh text eol=lf

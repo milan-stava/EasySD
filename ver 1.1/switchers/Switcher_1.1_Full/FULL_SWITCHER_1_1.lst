@@ -1,0 +1,2078 @@
+# file opened: FULL_SWITCHER_1_1.a80
+   1  0000                      ORG #8000
+   2  8000
+   3  8000              ;==============================================================================
+   4  8000              ; EasySD / EasyCF Switcher 1.1 Full - ASM backend, TEST 8d / NO DRIVER + NOT INSERTED + FAST EXIT
+   5  8000              ; Hood + ChatGPT, 2026-09-17
+   6  8000              ;
+   7  8000              ; Target:
+   8  8000              ;   EasyCF 1.0.1 in page 98
+   9  8000              ;   EasySD 1.1   in configurable page stored in BSDOS page 97:#0033
+  10  8000              ;
+  11  8000              ; Old 1.1 entry points are kept unchanged:
+  12  8000              ;   USR #8000 = switch CF
+  13  8000              ;   USR #8003 = switch SD1
+  14  8000              ;   USR #8007 = switch SD2
+  15  8000              ;   USR #800B = active system
+  16  8000              ;   USR #800E = availability mask
+  17  8000              ;
+  18  8000              ; New FULL API:
+  19  8000              ;   USR #8011 = GET_RECORD
+  20  8000              ;   USR #8014 = WRITE_TEXT
+  21  8000              ;   USR #8017 = ACTIVATE_RECORD
+  22  8000              ;   USR #801A = GET_ACTIVE_RECORD
+  23  8000              ;
+  24  8000              ; BASIC/API workspace:
+  25  8000              ;   #9000  INDEX       0..11
+  26  8000              ;                       0..3  = CF  P1..P4
+  27  8000              ;                       4..7  = SD1 P1..P4
+  28  8000              ;                       8..11 = SD2 P1..P4
+  29  8000              ;   #9001  INFO        output VDT info byte
+  30  8000              ;   #9002  LBA[4]      output, little endian
+  31  8000              ;   #9006  TEXT[26]    input/output VDT user text
+  32  8000              ;   #9020  RESULT      last result code
+  33  8000              ;   #9021  ACTIVE      active record 0..11, #FF = unknown
+  34  8000              ;   #9022  VDT_ADDR    debug: last resolved VDT base (word)
+  35  8000              ;   #9025  DRIVER_MASK bit0 CF, bit1 SD1, bit2 SD2
+  36  8000              ;   #9100..#927F CACHE 12 raw VDT records (12 x 32 bytes)
+  37  8000              ;
+  38  8000              ; RESULT / BC:
+  39  8000              ;   0 = OK
+  40  8000              ;   1 = EasySD/EasyCF 1.1 installation not available
+  41  8000              ;   2 = bad INDEX
+  42  8000              ;   3 = VDT not found / invalid
+  43  8000              ;   4 = selected partition is not usable (INFO bit 1 = 0)
+  44  8000              ;   5 = CF current_1st_sector patch not found
+  45  8000              ;
+  46  8000              ; VDT record, 32 bytes:
+  47  8000              ;   +0      INFO
+  48  8000              ;   +1..+4  LBA
+  49  8000              ;   +5      reserved
+  50  8000              ;   +6..31  user text (26 bytes)
+  51  8000              ;
+  52  8000              ; NOTE 1.1 SD98 FIX:
+  53  8000              ;   Accepts EasySD SD-only resident page 98 on eLeMeNt ZX / MB03+ Slim.
+  54  8000              ;   MB03+ dynamic SD pages remain 102..128; pages 99..101 stay rejected.
+  55  8000              ;   Complete backend for partition/LBA switching and 26-byte VDT descriptions.
+  56  8000              ;   BSDOS catalogue line 1 text is stored directly at #0DC4..#0DDD.
+  57  8000              ;   On ACTIVATE_RECORD the selected VDT text is copied there. If all 26 VDT
+  58  8000              ;   bytes are zero, the catalogue shows "EMPTY ENTRY" padded with spaces.
+  59  8000              ;   WRITE_TEXT also refreshes the catalogue immediately when editing the
+  60  8000              ;   currently active record.
+  61  8000              ;==============================================================================
+  62  8000
+  63  8000              PAGE_BSDOS              equ 97
+  64  8000              PAGE_CF                 equ 98
+  65  8000              PAGE_SD_ONLY_RAW         equ 98          ; eLeMeNt/Slim: SD1+SD2 v jedine page 98
+  66  8000              PAGE_SD_MIN_RAW          equ 102         ; MB03+: fyzicka SD page 6 -> zapisova hodnota 102
+  67  8000              PAGE_SD_MAX_RAW          equ 128
+  68  8000
+  69  8000              DOS_ACTIVE_PAGE         equ #001C
+  70  8000              DOS_ACTIVE_DEVICE       equ #0032
+  71  8000              DOS_PAGE_SD             equ #0033
+  72  8000              DOS_SD1_PARTITION       equ #0034
+  73  8000              DOS_SD2_PARTITION       equ #0035
+  74  8000              DOS_CF_PARTITION        equ #3C90
+  75  8000              DOS_INSTALL_SIGNATURE   equ #3C91
+  76  8000
+  77  8000              DRIVER_LASTD            equ #00E3
+  78  8000
+  79  8000              SD_CARD_SELECT          equ #0F12
+  80  8000              SD_SLOT_1               equ #FE
+  81  8000              SD_SLOT_2               equ #FD
+  82  8000
+  83  8000              SD1_LBA_STORE           equ #3C90
+  84  8000              SD2_LBA_STORE           equ #3C94
+  85  8000
+  86  8000              CURRENT_LBA_LOW         equ #02AB
+  87  8000              CURRENT_LBA_HIGH        equ #02AE
+  88  8000
+  89  8000              CF_VDT_BASE             equ #1000       ; EasyCF 1.0.1: CF routines at #0F00, VDT aligned to next xx00
+  90  8000
+  91  8000              CAT_DEVICE              equ #0DC1
+  92  8000              CAT_TEXT                equ #0DC4
+  93  8000              CAT_TEXT_LEN            equ 26
+  94  8000              CAT_PARTITION           equ #0DDF
+  95  8000
+  96  8000              NORMAL_MAPPING          equ #40
+  97  8000
+  98  8000              API_INDEX               equ #9000
+  99  8000              API_INFO                equ #9001
+ 100  8000              API_LBA                 equ #9002
+ 101  8000              API_TEXT                equ #9006
+ 102  8000              API_RESULT              equ #9020
+ 103  8000              API_ACTIVE              equ #9021
+ 104  8000              API_VDT_ADDR            equ #9022
+ 105  8000              API_DRIVER_MASK         equ #9025       ; bit0 CF, bit1 SD1, bit2 SD2
+ 106  8000              API_SLOT_MASK           equ #9026       ; bit1 SD1 card/data present, bit2 SD2 card/data present
+ 107  8000              API_CACHE_BASE          equ #9100
+ 108  8000
+ 109  8000              ;------------------------------------------------------------------------------
+ 110  8000              ; Compatibility jump table - exact addresses of Switcher 1.1
+ 111  8000              ;------------------------------------------------------------------------------
+ 112  8000
+ 113  8000              ENTRY_CF
+ 114  8000 AF                   xor     a
+ 115  8001 18 1A                jr      switch_start
+ 116  8003
+ 117  8003              ENTRY_SD1
+ 118  8003 3E 01                ld      a,1
+ 119  8005 18 16                jr      switch_start
+ 120  8007
+ 121  8007              ENTRY_SD2
+ 122  8007 3E 02                ld      a,2
+ 123  8009 18 12                jr      switch_start
+ 124  800B
+ 125  800B              ENTRY_STATUS
+ 126  800B C3 DD 80             jp      get_status
+ 127  800E
+ 128  800E              ENTRY_AVAILABILITY
+ 129  800E C3 EE 80             jp      get_availability
+ 130  8011
+ 131  8011              ;------------------------------------------------------------------------------
+ 132  8011              ; New FULL API jump table
+ 133  8011              ;------------------------------------------------------------------------------
+ 134  8011
+ 135  8011              ENTRY_GET_RECORD
+ 136  8011 C3 F7 80             jp      api_get_record
+ 137  8014
+ 138  8014              ENTRY_WRITE_TEXT
+ 139  8014 C3 21 81             jp      api_write_text
+ 140  8017
+ 141  8017              ENTRY_ACTIVATE_RECORD
+ 142  8017 C3 59 81             jp      api_activate_record
+ 143  801A
+ 144  801A              ENTRY_GET_ACTIVE_RECORD
+ 145  801A C3 31 8A             jp      api_cache_all
+ 146  801D
+ 147  801D                      ASSERT ENTRY_CF              = #8000
+ 148  801D                      ASSERT ENTRY_SD1             = #8003
+ 149  801D                      ASSERT ENTRY_SD2             = #8007
+ 150  801D                      ASSERT ENTRY_STATUS          = #800B
+ 151  801D                      ASSERT ENTRY_AVAILABILITY    = #800E
+ 152  801D                      ASSERT ENTRY_GET_RECORD      = #8011
+ 153  801D                      ASSERT ENTRY_WRITE_TEXT      = #8014
+ 154  801D                      ASSERT ENTRY_ACTIVATE_RECORD = #8017
+ 155  801D                      ASSERT ENTRY_GET_ACTIVE_RECORD = #801A
+ 156  801D
+ 157  801D              ;==============================================================================
+ 158  801D              ; Original Switcher 1.1 behaviour
+ 159  801D              ;==============================================================================
+ 160  801D
+ 161  801D              switch_start
+ 162  801D F3                   di
+ 163  801E 32 42 87             ld      (selected_device),a
+ 164  8021 CD E8 85             call    detect_all
+ 165  8024 47                   ld      b,a
+ 166  8025
+ 167  8025 3A 42 87             ld      a,(selected_device)
+ 168  8028 B7                   or      a
+ 169  8029 28 12                jr      z,.check_cf
+ 170  802B FE 02                cp      2
+ 171  802D 28 07                jr      z,.check_sd2
+ 172  802F
+ 173  802F CB 48                bit     1,b
+ 174  8031 20 0F                jr      nz,.detected
+ 175  8033 C3 D4 80             jp      switch_not_detected
+ 176  8036
+ 177  8036              .check_sd2
+ 178  8036 CB 50                bit     2,b
+ 179  8038 20 08                jr      nz,.detected
+ 180  803A C3 D4 80             jp      switch_not_detected
+ 181  803D
+ 182  803D              .check_cf
+ 183  803D CB 40                bit     0,b
+ 184  803F CA D4 80             jp      z,switch_not_detected
+ 185  8042
+ 186  8042              .detected
+ 187  8042 3E 61                ld      a,PAGE_BSDOS
+ 188  8044 D3 17                out     (23),a
+ 189  8046 3E 1E                ld      a,#1E                  ; KILLX only after successful detection
+ 190  8048 E7                   rst     #20
+ 191  8049
+ 192  8049 3A 42 87             ld      a,(selected_device)
+ 193  804C B7                   or      a
+ 194  804D 28 48                jr      z,switch_cf
+ 195  804F FE 02                cp      2
+ 196  8051 28 11                jr      z,switch_sd2
+ 197  8053
+ 198  8053              switch_sd1
+ 199  8053 3E 01                ld      a,1
+ 200  8055 32 32 00             ld      (DOS_ACTIVE_DEVICE),a
+ 201  8058 3A 34 00             ld      a,(DOS_SD1_PARTITION)
+ 202  805B 26 31                ld      h,'1'
+ 203  805D 01 90 3C             ld      bc,SD1_LBA_STORE
+ 204  8060 1E FE                ld      e,SD_SLOT_1
+ 205  8062 18 0F                jr      switch_sd_common
+ 206  8064
+ 207  8064              switch_sd2
+ 208  8064 3E 02                ld      a,2
+ 209  8066 32 32 00             ld      (DOS_ACTIVE_DEVICE),a
+ 210  8069 3A 35 00             ld      a,(DOS_SD2_PARTITION)
+ 211  806C 26 32                ld      h,'2'
+ 212  806E 01 94 3C             ld      bc,SD2_LBA_STORE
+ 213  8071 1E FD                ld      e,SD_SLOT_2
+ 214  8073
+ 215  8073              switch_sd_common
+ 216  8073 C6 30                add     a,'0'
+ 217  8075 57                   ld      d,a
+ 218  8076 7B                   ld      a,e
+ 219  8077 32 43 87             ld      (selected_slot),a
+ 220  807A
+ 221  807A 1E 50                ld      e,'P'
+ 222  807C ED 53 DF 0D          ld      (CAT_PARTITION),de
+ 223  8080 2E 53                ld      l,'S'
+ 224  8082 22 C1 0D             ld      (CAT_DEVICE),hl
+ 225  8085
+ 226  8085 60                   ld      h,b
+ 227  8086 69                   ld      l,c
+ 228  8087
+ 229  8087 3A 33 00             ld      a,(DOS_PAGE_SD)
+ 230  808A 32 1C 00             ld      (DOS_ACTIVE_PAGE),a
+ 231  808D D3 17                out     (23),a
+ 232  808F
+ 233  808F 3A 43 87             ld      a,(selected_slot)
+ 234  8092 32 12 0F             ld      (SD_CARD_SELECT),a
+ 235  8095 18 22                jr      finish_sd
+ 236  8097
+ 237  8097              switch_cf
+ 238  8097 3A 90 3C             ld      a,(DOS_CF_PARTITION)
+ 239  809A C6 30                add     a,'0'
+ 240  809C 67                   ld      h,a
+ 241  809D 2E 50                ld      l,'P'
+ 242  809F 22 DF 0D             ld      (CAT_PARTITION),hl
+ 243  80A2
+ 244  80A2 21 43 46             ld      hl,#4643                ; memory order "CF"
+ 245  80A5 22 C1 0D             ld      (CAT_DEVICE),hl
+ 246  80A8
+ 247  80A8 AF                   xor     a
+ 248  80A9 32 32 00             ld      (DOS_ACTIVE_DEVICE),a
+ 249  80AC 3E 62                ld      a,PAGE_CF
+ 250  80AE 32 1C 00             ld      (DOS_ACTIVE_PAGE),a
+ 251  80B1 D3 17                out     (23),a
+ 252  80B3
+ 253  80B3 AF                   xor     a
+ 254  80B4 32 E3 00             ld      (DRIVER_LASTD),a
+ 255  80B7 18 12                jr      finish_ok
+ 256  80B9
+ 257  80B9              finish_sd
+ 258  80B9 AF                   xor     a
+ 259  80BA 32 E3 00             ld      (DRIVER_LASTD),a
+ 260  80BD
+ 261  80BD 11 AB 02             ld      de,CURRENT_LBA_LOW
+ 262  80C0 01 02 00             ld      bc,2
+ 263  80C3 ED B0                ldir
+ 264  80C5 13                   inc     de                       ; #02AD -> #02AE
+ 265  80C6 01 02 00             ld      bc,2
+ 266  80C9 ED B0                ldir
+ 267  80CB
+ 268  80CB              finish_ok
+ 269  80CB 3E 40                ld      a,NORMAL_MAPPING
+ 270  80CD D3 17                out     (23),a
+ 271  80CF 01 00 00             ld      bc,0
+ 272  80D2 FB                   ei
+ 273  80D3 C9                   ret
+ 274  80D4
+ 275  80D4              switch_not_detected
+ 276  80D4 3E 40                ld      a,NORMAL_MAPPING
+ 277  80D6 D3 17                out     (23),a
+ 278  80D8 01 01 00             ld      bc,1
+ 279  80DB FB                   ei
+ 280  80DC C9                   ret
+ 281  80DD
+ 282  80DD              get_status
+ 283  80DD F3                   di
+ 284  80DE CD E8 85             call    detect_all
+ 285  80E1 3A 49 87             ld      a,(current_device)
+ 286  80E4 FE FF                cp      #FF
+ 287  80E6 CC AE 86             call    z,detect_legacy_system
+ 288  80E9 4F                   ld      c,a
+ 289  80EA 06 00                ld      b,0
+ 290  80EC FB                   ei
+ 291  80ED C9                   ret
+ 292  80EE
+ 293  80EE              get_availability
+ 294  80EE F3                   di
+ 295  80EF CD E8 85             call    detect_all
+ 296  80F2 4F                   ld      c,a
+ 297  80F3 06 00                ld      b,0
+ 298  80F5 FB                   ei
+ 299  80F6 C9                   ret
+ 300  80F7
+ 301  80F7              ;==============================================================================
+ 302  80F7              ; FULL API
+ 303  80F7              ;==============================================================================
+ 304  80F7
+ 305  80F7              ;------------------------------------------------------------------------------
+ 306  80F7              ; GET_RECORD
+ 307  80F7              ; API_INDEX = 0..11
+ 308  80F7              ; OUT:
+ 309  80F7              ;   API_INFO
+ 310  80F7              ;   API_LBA[4]
+ 311  80F7              ;   API_TEXT[26]
+ 312  80F7              ;   BC = RESULT
+ 313  80F7              ;------------------------------------------------------------------------------
+ 314  80F7
+ 315  80F7              api_get_record
+ 316  80F7 F3                   di
+ 317  80F8 CD E6 82             call    full_load_state
+ 318  80FB C2 CA 85             jp      nz,api_error_install
+ 319  80FE
+ 320  80FE 3A 00 90             ld      a,(API_INDEX)
+ 321  8101 CD 81 83             call    full_get_record_ptr
+ 322  8104 DA D9 85             jp      c,api_error_from_a
+ 323  8107
+ 324  8107 7E                   ld      a,(hl)
+ 325  8108 32 01 90             ld      (API_INFO),a
+ 326  810B
+ 327  810B 23                   inc     hl
+ 328  810C 11 02 90             ld      de,API_LBA
+ 329  810F 01 04 00             ld      bc,4
+ 330  8112 ED B0                ldir
+ 331  8114
+ 332  8114 23                   inc     hl                       ; skip reserved byte +5
+ 333  8115 11 06 90             ld      de,API_TEXT
+ 334  8118 01 1A 00             ld      bc,26
+ 335  811B ED B0                ldir
+ 336  811D
+ 337  811D AF                   xor     a
+ 338  811E C3 DC 85             jp      api_finish_a
+ 339  8121
+ 340  8121              ;------------------------------------------------------------------------------
+ 341  8121              ; WRITE_TEXT
+ 342  8121              ; API_INDEX = 0..11
+ 343  8121              ; API_TEXT[26] = exactly 26 bytes; BASIC may use zero padding.
+ 344  8121              ;------------------------------------------------------------------------------
+ 345  8121
+ 346  8121              api_write_text
+ 347  8121 F3                   di
+ 348  8122 CD E6 82             call    full_load_state
+ 349  8125 C2 CA 85             jp      nz,api_error_install
+ 350  8128
+ 351  8128 3A 00 90             ld      a,(API_INDEX)
+ 352  812B CD 81 83             call    full_get_record_ptr
+ 353  812E DA D9 85             jp      c,api_error_from_a
+ 354  8131
+ 355  8131 11 06 00             ld      de,6
+ 356  8134 19                   add     hl,de
+ 357  8135 EB                   ex      de,hl                     ; DE = VDT text
+ 358  8136 21 06 90             ld      hl,API_TEXT
+ 359  8139 01 1A 00             ld      bc,26
+ 360  813C ED B0                ldir
+ 361  813E
+ 362  813E                      ; Standalone EasyCF has the legacy BSDOS catalogue layout.
+ 363  813E                      ; Never write the 1.1 26-byte catalogue fields in CF-only mode.
+ 364  813E 3A 4E 87             ld      a,(standalone_cf_mode)
+ 365  8141 B7                   or      a
+ 366  8142 20 11                jr      nz,.write_done
+ 367  8144
+ 368  8144                      ; If the edited record is currently active, update the visible BSDOS
+ 369  8144                      ; catalogue description immediately.
+ 370  8144 CD 68 85             call    full_active_index_from_saved
+ 371  8147 47                   ld      b,a
+ 372  8148 3A 44 87             ld      a,(selected_index)
+ 373  814B B8                   cp      b
+ 374  814C 20 07                jr      nz,.write_done
+ 375  814E
+ 376  814E 3E 61                ld      a,PAGE_BSDOS
+ 377  8150 D3 17                out     (23),a
+ 378  8152 CD 3C 85             call    full_catalog_text
+ 379  8155
+ 380  8155              .write_done
+ 381  8155 AF                   xor     a
+ 382  8156 C3 DC 85             jp      api_finish_a
+ 383  8159
+ 384  8159              ;------------------------------------------------------------------------------
+ 385  8159              ; ACTIVATE_RECORD
+ 386  8159              ; API_INDEX = 0..11
+ 387  8159              ;
+ 388  8159              ; Checks VDT INFO bit 1.
+ 389  8159              ; Changes device + partition and puts the selected VDT LBA directly into
+ 390  8159              ; current_1st_sector. SD also updates SD1_LBA_STORE / SD2_LBA_STORE so the old
+ 391  8159              ; #8003/#8007 entries continue using the new partition.
+ 392  8159              ;------------------------------------------------------------------------------
+ 393  8159
+ 394  8159              api_activate_record
+ 395  8159 F3                   di
+ 396  815A CD E6 82             call    full_load_state
+ 397  815D C2 CA 85             jp      nz,api_error_install
+ 398  8160
+ 399  8160 3A 00 90             ld      a,(API_INDEX)
+ 400  8163 FE 0C                cp      12
+ 401  8165 D2 CF 85             jp      nc,api_error_bad_index
+ 402  8168 32 44 87             ld      (selected_index),a
+ 403  816B
+ 404  816B                      ; For CF we must find its self-modifying current_1st_sector while the
+ 405  816B                      ; old partition/LBA is still known.
+ 406  816B FE 04                cp      4
+ 407  816D 30 1D                jr      nc,.not_cf
+ 408  816F
+ 409  816F 3E 62                ld      a,PAGE_CF
+ 410  8171 D3 17                out     (23),a
+ 411  8173 11 02 87             ld      de,EASYCF_ID
+ 412  8176 3A 4E 87             ld      a,(standalone_cf_mode)
+ 413  8179 B7                   or      a
+ 414  817A 28 05                jr      z,.cf_check_11
+ 415  817C CD FB 86             call    check_id
+ 416  817F 18 03                jr      .cf_checked
+ 417  8181              .cf_check_11
+ 418  8181 CD E7 86             call    check_driver
+ 419  8184              .cf_checked
+ 420  8184 C2 C6 85             jp      nz,api_error_install_mapped
+ 421  8187
+ 422  8187 CD A4 84             call    full_find_cf_lba_patch
+ 423  818A 38 34                jr      c,.cf_patch_error
+ 424  818C
+ 425  818C              .not_cf
+ 426  818C 3A 44 87             ld      a,(selected_index)
+ 427  818F CD 81 83             call    full_get_record_ptr
+ 428  8192 DA D9 85             jp      c,api_error_from_a
+ 429  8195
+ 430  8195 CB 4E                bit     1,(hl)
+ 431  8197 CA D4 85             jp      z,api_error_unusable
+ 432  819A
+ 433  819A                      ; Copy selected LBA and 26-byte description to stable RAM while the
+ 434  819A                      ; driver page is mapped. After the 4-byte LBA HL points at reserved +5.
+ 435  819A 23                   inc     hl
+ 436  819B 11 02 90             ld      de,API_LBA
+ 437  819E 01 04 00             ld      bc,4
+ 438  81A1 ED B0                ldir
+ 439  81A3 23                   inc     hl                       ; skip reserved byte +5 -> text +6
+ 440  81A4 11 06 90             ld      de,API_TEXT
+ 441  81A7 01 1A 00             ld      bc,26
+ 442  81AA ED B0                ldir
+ 443  81AC
+ 444  81AC                      ; Keep the same safe switching semantics as the original 1.1 switcher:
+ 445  81AC                      ; KILLX only after the target record has been validated and its LBA saved.
+ 446  81AC 3E 61                ld      a,PAGE_BSDOS
+ 447  81AE D3 17                out     (23),a
+ 448  81B0 3E 1E                ld      a,#1E
+ 449  81B2 E7                   rst     #20
+ 450  81B3
+ 451  81B3 3A 44 87             ld      a,(selected_index)
+ 452  81B6 FE 04                cp      4
+ 453  81B8 38 0B                jr      c,.activate_cf
+ 454  81BA FE 08                cp      8
+ 455  81BC 38 54                jr      c,.activate_sd1
+ 456  81BE 18 6C                jr      .activate_sd2
+ 457  81C0
+ 458  81C0              .cf_patch_error
+ 459  81C0 3E 05                ld      a,5
+ 460  81C2 C3 DC 85             jp      api_finish_a
+ 461  81C5
+ 462  81C5              .activate_cf
+ 463  81C5                      ; A = global index 0..3 -> partition 1..4
+ 464  81C5 3A 44 87             ld      a,(selected_index)
+ 465  81C8 3C                   inc     a
+ 466  81C9 32 45 87             ld      (selected_partition),a
+ 467  81CC
+ 468  81CC                      ; In standalone EasyCF mode there is no ES11 state block in BSDOS.
+ 469  81CC                      ; Only patch the CF driver itself; leave legacy BSDOS state/catalogue intact.
+ 470  81CC 3A 4E 87             ld      a,(standalone_cf_mode)
+ 471  81CF B7                   or      a
+ 472  81D0 20 19                jr      nz,.activate_cf_driver
+ 473  81D2
+ 474  81D2 3E 61                ld      a,PAGE_BSDOS
+ 475  81D4 D3 17                out     (23),a
+ 476  81D6
+ 477  81D6 3A 45 87             ld      a,(selected_partition)
+ 478  81D9 32 90 3C             ld      (DOS_CF_PARTITION),a
+ 479  81DC
+ 480  81DC AF                   xor     a
+ 481  81DD 32 32 00             ld      (DOS_ACTIVE_DEVICE),a
+ 482  81E0 3E 62                ld      a,PAGE_CF
+ 483  81E2 32 1C 00             ld      (DOS_ACTIVE_PAGE),a
+ 484  81E5
+ 485  81E5 CD 9C 85             call    full_catalog_cf
+ 486  81E8 CD 3C 85             call    full_catalog_text
+ 487  81EB
+ 488  81EB              .activate_cf_driver
+ 489  81EB 3E 62                ld      a,PAGE_CF
+ 490  81ED D3 17                out     (23),a
+ 491  81EF
+ 492  81EF AF                   xor     a
+ 493  81F0 32 E3 00             ld      (DRIVER_LASTD),a
+ 494  81F3
+ 495  81F3                      ; Write 4B LBA to operands found by full_find_cf_lba_patch.
+ 496  81F3 21 02 90             ld      hl,API_LBA
+ 497  81F6 ED 5B 52 87          ld      de,(cf_lba_low_patch)
+ 498  81FA 01 02 00             ld      bc,2
+ 499  81FD ED B0                ldir
+ 500  81FF ED 5B 54 87          ld      de,(cf_lba_high_patch)
+ 501  8203 01 02 00             ld      bc,2
+ 502  8206 ED B0                ldir
+ 503  8208
+ 504  8208 3A 45 87             ld      a,(selected_partition)
+ 505  820B 32 4D 87             ld      (saved_cf_partition),a
+ 506  820E
+ 507  820E AF                   xor     a
+ 508  820F C3 DC 85             jp      api_finish_a
+ 509  8212
+ 510  8212              .activate_sd1
+ 511  8212 3A 44 87             ld      a,(selected_index)
+ 512  8215 D6 03                sub     3                       ; 4..7 -> P1..P4
+ 513  8217 32 45 87             ld      (selected_partition),a
+ 514  821A 3E 01                ld      a,1
+ 515  821C 32 42 87             ld      (selected_device),a
+ 516  821F 3E FE                ld      a,SD_SLOT_1
+ 517  8221 32 43 87             ld      (selected_slot),a
+ 518  8224 21 90 3C             ld      hl,SD1_LBA_STORE
+ 519  8227 22 50 87             ld      (selected_lba_store),hl
+ 520  822A 18 18                jr      full_activate_sd
+ 521  822C
+ 522  822C              .activate_sd2
+ 523  822C 3A 44 87             ld      a,(selected_index)
+ 524  822F D6 07                sub     7                       ; 8..11 -> P1..P4
+ 525  8231 32 45 87             ld      (selected_partition),a
+ 526  8234 3E 02                ld      a,2
+ 527  8236 32 42 87             ld      (selected_device),a
+ 528  8239 3E FD                ld      a,SD_SLOT_2
+ 529  823B 32 43 87             ld      (selected_slot),a
+ 530  823E 21 94 3C             ld      hl,SD2_LBA_STORE
+ 531  8241 22 50 87             ld      (selected_lba_store),hl
+ 532  8244
+ 533  8244              full_activate_sd
+ 534  8244 3E 61                ld      a,PAGE_BSDOS
+ 535  8246 D3 17                out     (23),a
+ 536  8248
+ 537  8248 3A 42 87             ld      a,(selected_device)
+ 538  824B 32 32 00             ld      (DOS_ACTIVE_DEVICE),a
+ 539  824E
+ 540  824E FE 02                cp      2
+ 541  8250 28 08                jr      z,.save_sd2_part
+ 542  8252 3A 45 87             ld      a,(selected_partition)
+ 543  8255 32 34 00             ld      (DOS_SD1_PARTITION),a
+ 544  8258 18 06                jr      .part_saved
+ 545  825A              .save_sd2_part
+ 546  825A 3A 45 87             ld      a,(selected_partition)
+ 547  825D 32 35 00             ld      (DOS_SD2_PARTITION),a
+ 548  8260              .part_saved
+ 549  8260 3A 4A 87             ld      a,(saved_sd_page)
+ 550  8263 32 1C 00             ld      (DOS_ACTIVE_PAGE),a
+ 551  8266
+ 552  8266 CD AE 85             call    full_catalog_sd
+ 553  8269 CD 3C 85             call    full_catalog_text
+ 554  826C
+ 555  826C 3A 4A 87             ld      a,(saved_sd_page)
+ 556  826F D3 17                out     (23),a
+ 557  8271
+ 558  8271 3A 43 87             ld      a,(selected_slot)
+ 559  8274 32 12 0F             ld      (SD_CARD_SELECT),a
+ 560  8277
+ 561  8277 AF                   xor     a
+ 562  8278 32 E3 00             ld      (DRIVER_LASTD),a
+ 563  827B
+ 564  827B                      ; current_1st_sector, fixed by EasySD 1.1 ASSERTs.
+ 565  827B 21 02 90             ld      hl,API_LBA
+ 566  827E 11 AB 02             ld      de,CURRENT_LBA_LOW
+ 567  8281 01 02 00             ld      bc,2
+ 568  8284 ED B0                ldir
+ 569  8286 13                   inc     de
+ 570  8287 01 02 00             ld      bc,2
+ 571  828A ED B0                ldir
+ 572  828C
+ 573  828C                      ; Keep the old #8003/#8007 switch entries coherent.
+ 574  828C 21 02 90             ld      hl,API_LBA
+ 575  828F ED 5B 50 87          ld      de,(selected_lba_store)
+ 576  8293 01 04 00             ld      bc,4
+ 577  8296 ED B0                ldir
+ 578  8298
+ 579  8298 AF                   xor     a
+ 580  8299 C3 DC 85             jp      api_finish_a
+ 581  829C
+ 582  829C              ;------------------------------------------------------------------------------
+ 583  829C              ; GET_ACTIVE_RECORD
+ 584  829C              ; OUT API_ACTIVE = 0..11 or #FF
+ 585  829C              ;------------------------------------------------------------------------------
+ 586  829C
+ 587  829C              api_get_active_record
+ 588  829C F3                   di
+ 589  829D CD E6 82             call    full_load_state
+ 590  82A0 C2 CA 85             jp      nz,api_error_install
+ 591  82A3
+ 592  82A3 3E FF                ld      a,#FF
+ 593  82A5 32 21 90             ld      (API_ACTIVE),a
+ 594  82A8
+ 595  82A8 3A 49 87             ld      a,(current_device)
+ 596  82AB B7                   or      a
+ 597  82AC 28 0C                jr      z,.cf
+ 598  82AE FE 01                cp      1
+ 599  82B0 28 13                jr      z,.sd1
+ 600  82B2 FE 02                cp      2
+ 601  82B4 28 1B                jr      z,.sd2
+ 602  82B6 AF                   xor     a
+ 603  82B7 C3 DC 85             jp      api_finish_a
+ 604  82BA
+ 605  82BA              .cf
+ 606  82BA 3A 4D 87             ld      a,(saved_cf_partition)
+ 607  82BD CD 8D 84             call    full_valid_partition_a
+ 608  82C0 38 1B                jr      c,.unknown
+ 609  82C2 3D                   dec     a
+ 610  82C3 18 1A                jr      .save
+ 611  82C5              .sd1
+ 612  82C5 3A 4B 87             ld      a,(saved_sd1_partition)
+ 613  82C8 CD 8D 84             call    full_valid_partition_a
+ 614  82CB 38 10                jr      c,.unknown
+ 615  82CD C6 03                add     a,3                       ; P1 -> 4
+ 616  82CF 18 0E                jr      .save
+ 617  82D1              .sd2
+ 618  82D1 3A 4C 87             ld      a,(saved_sd2_partition)
+ 619  82D4 CD 8D 84             call    full_valid_partition_a
+ 620  82D7 38 04                jr      c,.unknown
+ 621  82D9 C6 07                add     a,7                       ; P1 -> 8
+ 622  82DB 18 02                jr      .save
+ 623  82DD              .unknown
+ 624  82DD 3E FF                ld      a,#FF
+ 625  82DF              .save
+ 626  82DF 32 21 90             ld      (API_ACTIVE),a
+ 627  82E2 AF                   xor     a
+ 628  82E3 C3 DC 85             jp      api_finish_a
+ 629  82E6
+ 630  82E6              ;==============================================================================
+ 631  82E6              ; FULL helpers
+ 632  82E6              ;==============================================================================
+ 633  82E6
+ 634  82E6              ;------------------------------------------------------------------------------
+ 635  82E6              ; Read/validate EasySD 1.1 resident state from BSDOS page 97.
+ 636  82E6              ; OUT Z = OK, NZ = not installed
+ 637  82E6              ; Also saves current device/page/partitions.
+ 638  82E6              ; Restores normal mapping before return.
+ 639  82E6              ;------------------------------------------------------------------------------
+ 640  82E6
+ 641  82E6              full_load_state
+ 642  82E6 AF                   xor     a
+ 643  82E7 32 4E 87             ld      (standalone_cf_mode),a
+ 644  82EA
+ 645  82EA 3E 61                ld      a,PAGE_BSDOS
+ 646  82EC D3 17                out     (23),a
+ 647  82EE
+ 648  82EE 2A 91 3C             ld      hl,(DOS_INSTALL_SIGNATURE)
+ 649  82F1 11 45 53             ld      de,#5345                  ; "ES"
+ 650  82F4 B7                   or      a
+ 651  82F5 ED 52                sbc     hl,de
+ 652  82F7 20 4B                jr      nz,.try_standalone_cf
+ 653  82F9
+ 654  82F9 2A 93 3C             ld      hl,(DOS_INSTALL_SIGNATURE+2)
+ 655  82FC 11 31 31             ld      de,#3131                  ; "11"
+ 656  82FF B7                   or      a
+ 657  8300 ED 52                sbc     hl,de
+ 658  8302 20 40                jr      nz,.try_standalone_cf
+ 659  8304
+ 660  8304 3A 1B 00             ld      a,(#001B)
+ 661  8307 FE 3E                cp      #3E
+ 662  8309 20 39                jr      nz,.try_standalone_cf
+ 663  830B 3A 1D 00             ld      a,(#001D)
+ 664  830E FE D3                cp      #D3
+ 665  8310 20 32                jr      nz,.try_standalone_cf
+ 666  8312 3A 1E 00             ld      a,(#001E)
+ 667  8315 FE 17                cp      #17
+ 668  8317 20 2B                jr      nz,.try_standalone_cf
+ 669  8319 3A 1F 00             ld      a,(#001F)
+ 670  831C FE C9                cp      #C9
+ 671  831E 20 24                jr      nz,.try_standalone_cf
+ 672  8320
+ 673  8320 3A 32 00             ld      a,(DOS_ACTIVE_DEVICE)
+ 674  8323 32 49 87             ld      (current_device),a
+ 675  8326 3A 33 00             ld      a,(DOS_PAGE_SD)
+ 676  8329 32 4A 87             ld      (saved_sd_page),a
+ 677  832C 3A 34 00             ld      a,(DOS_SD1_PARTITION)
+ 678  832F 32 4B 87             ld      (saved_sd1_partition),a
+ 679  8332 3A 35 00             ld      a,(DOS_SD2_PARTITION)
+ 680  8335 32 4C 87             ld      (saved_sd2_partition),a
+ 681  8338 3A 90 3C             ld      a,(DOS_CF_PARTITION)
+ 682  833B 32 4D 87             ld      (saved_cf_partition),a
+ 683  833E
+ 684  833E 3E 40                ld      a,NORMAL_MAPPING
+ 685  8340 D3 17                out     (23),a
+ 686  8342 AF                   xor     a
+ 687  8343 C9                   ret
+ 688  8344
+ 689  8344              .try_standalone_cf
+ 690  8344                      ; Do not inspect or modify BSDOS catalogue/state here.
+ 691  8344                      ; Only prove that a standalone EasyCF and its VDT are present.
+ 692  8344 3E 40                ld      a,NORMAL_MAPPING
+ 693  8346 D3 17                out     (23),a
+ 694  8348 3E 62                ld      a,PAGE_CF
+ 695  834A D3 17                out     (23),a
+ 696  834C 11 02 87             ld      de,EASYCF_ID
+ 697  834F CD FB 86             call    check_id                  ; standalone EasyCF need not have 1.1 bridge
+ 698  8352 20 25                jr      nz,.bad_mapped
+ 699  8354 21 00 10             ld      hl,CF_VDT_BASE
+ 700  8357 CD FE 83             call    full_validate_vdt4
+ 701  835A 38 1D                jr      c,.bad_mapped
+ 702  835C
+ 703  835C AF                   xor     a
+ 704  835D 32 49 87             ld      (current_device),a        ; standalone CF
+ 705  8360 32 4D 87             ld      (saved_cf_partition),a    ; resolved below if driver LBA matches P1..P4
+ 706  8363 32 4A 87             ld      (saved_sd_page),a
+ 707  8366 32 4B 87             ld      (saved_sd1_partition),a
+ 708  8369 32 4C 87             ld      (saved_sd2_partition),a
+ 709  836C 3C                   inc     a
+ 710  836D 32 4E 87             ld      (standalone_cf_mode),a
+ 711  8370
+ 712  8370                      ; Recover active CF partition and patch operand addresses directly from
+ 713  8370                      ; the installed EasyCF driver. Failure is non-fatal for browsing/editing.
+ 714  8370 CD A4 84             call    full_find_cf_lba_patch
+ 715  8373
+ 716  8373 3E 40                ld      a,NORMAL_MAPPING
+ 717  8375 D3 17                out     (23),a
+ 718  8377 AF                   xor     a
+ 719  8378 C9                   ret
+ 720  8379
+ 721  8379              .bad_mapped
+ 722  8379 3E 40                ld      a,NORMAL_MAPPING
+ 723  837B D3 17                out     (23),a
+ 724  837D 3E 01                ld      a,1
+ 725  837F B7                   or      a
+ 726  8380 C9                   ret
+ 727  8381
+ 728  8381              ;------------------------------------------------------------------------------
+ 729  8381              ; Resolve API/global record.
+ 730  8381              ; IN  A = 0..11
+ 731  8381              ; OUT HL = record address in currently mapped driver bank
+ 732  8381              ;     CARRY clear = OK
+ 733  8381              ;     CARRY set, A = result code (1,2,3)
+ 734  8381              ;------------------------------------------------------------------------------
+ 735  8381
+ 736  8381              full_get_record_ptr
+ 737  8381 FE 0C                cp      12
+ 738  8383 30 5A                jr      nc,.bad_index
+ 739  8385
+ 740  8385 32 44 87             ld      (selected_index),a
+ 741  8388 FE 04                cp      4
+ 742  838A 38 2E                jr      c,.cf
+ 743  838C
+ 744  838C                      ; SD records: global 4..11 -> local 0..7
+ 745  838C D6 04                sub     4
+ 746  838E 32 46 87             ld      (local_record),a
+ 747  8391
+ 748  8391 3A 4A 87             ld      a,(saved_sd_page)
+ 749  8394 FE 62                cp      PAGE_SD_ONLY_RAW
+ 750  8396 28 08                jr      z,.sd_page_ok
+ 751  8398 FE 66                cp      PAGE_SD_MIN_RAW
+ 752  839A 38 4B                jr      c,.install_error
+ 753  839C FE 81                cp      PAGE_SD_MAX_RAW+1
+ 754  839E 30 47                jr      nc,.install_error
+ 755  83A0              .sd_page_ok
+ 756  83A0 D3 17                out     (23),a
+ 757  83A2 11 0A 87             ld      de,EASYSD_ID
+ 758  83A5 CD E7 86             call    check_driver
+ 759  83A8 20 39                jr      nz,.install_error_mapped
+ 760  83AA
+ 761  83AA CD 19 84             call    full_find_sd_vdt
+ 762  83AD 38 3C                jr      c,.vdt_error_mapped
+ 763  83AF
+ 764  83AF 22 22 90             ld      (API_VDT_ADDR),hl
+ 765  83B2 3A 46 87             ld      a,(local_record)
+ 766  83B5 CD F3 83             call    full_add_record_offset
+ 767  83B8 B7                   or      a                       ; clear carry
+ 768  83B9 C9                   ret
+ 769  83BA
+ 770  83BA              .cf
+ 771  83BA 32 46 87             ld      (local_record),a
+ 772  83BD 3E 62                ld      a,PAGE_CF
+ 773  83BF D3 17                out     (23),a
+ 774  83C1 11 02 87             ld      de,EASYCF_ID
+ 775  83C4 CD E7 86             call    check_driver
+ 776  83C7 20 1A                jr      nz,.install_error_mapped
+ 777  83C9
+ 778  83C9 21 00 10             ld      hl,CF_VDT_BASE
+ 779  83CC CD FE 83             call    full_validate_vdt4
+ 780  83CF 38 1A                jr      c,.vdt_error_mapped
+ 781  83D1
+ 782  83D1 21 00 10             ld      hl,CF_VDT_BASE
+ 783  83D4 22 22 90             ld      (API_VDT_ADDR),hl
+ 784  83D7 3A 46 87             ld      a,(local_record)
+ 785  83DA CD F3 83             call    full_add_record_offset
+ 786  83DD B7                   or      a
+ 787  83DE C9                   ret
+ 788  83DF
+ 789  83DF              .bad_index
+ 790  83DF 3E 02                ld      a,2
+ 791  83E1 37                   scf
+ 792  83E2 C9                   ret
+ 793  83E3
+ 794  83E3              .install_error_mapped
+ 795  83E3 3E 40                ld      a,NORMAL_MAPPING
+ 796  83E5 D3 17                out     (23),a
+ 797  83E7              .install_error
+ 798  83E7 3E 01                ld      a,1
+ 799  83E9 37                   scf
+ 800  83EA C9                   ret
+ 801  83EB
+ 802  83EB              .vdt_error_mapped
+ 803  83EB 3E 40                ld      a,NORMAL_MAPPING
+ 804  83ED D3 17                out     (23),a
+ 805  83EF 3E 03                ld      a,3
+ 806  83F1 37                   scf
+ 807  83F2 C9                   ret
+ 808  83F3
+ 809  83F3              ;------------------------------------------------------------------------------
+ 810  83F3              ; HL = base, A = record number; return HL += A*32.
+ 811  83F3              ;------------------------------------------------------------------------------
+ 812  83F3
+ 813  83F3              full_add_record_offset
+ 814  83F3 5F                   ld      e,a
+ 815  83F4 16 00                ld      d,0
+ 816  83F6 EB                   ex      de,hl                    ; HL = index, DE = base
+ 817  83F7 29                   add     hl,hl
+ 818  83F8 29                   add     hl,hl
+ 819  83F9 29                   add     hl,hl
+ 820  83FA 29                   add     hl,hl
+ 821  83FB 29                   add     hl,hl                    ; *32
+ 822  83FC 19                   add     hl,de
+ 823  83FD C9                   ret
+ 824  83FE
+ 825  83FE              ;------------------------------------------------------------------------------
+ 826  83FE              ; CF VDT v1.0.1 is fixed at #1000.
+ 827  83FE              ; Validate four records structurally:
+ 828  83FE              ;   reserved high INFO nibble must be zero
+ 829  83FE              ;   reserved byte +5 must be zero
+ 830  83FE              ; CARRY = invalid
+ 831  83FE              ;------------------------------------------------------------------------------
+ 832  83FE
+ 833  83FE              full_validate_vdt4
+ 834  83FE 06 04                ld      b,4
+ 835  8400              .loop
+ 836  8400 7E                   ld      a,(hl)
+ 837  8401 E6 F0                and     #F0
+ 838  8403 20 12                jr      nz,.bad
+ 839  8405
+ 840  8405 E5                   push    hl
+ 841  8406 11 05 00             ld      de,5
+ 842  8409 19                   add     hl,de
+ 843  840A 7E                   ld      a,(hl)
+ 844  840B E1                   pop     hl
+ 845  840C B7                   or      a
+ 846  840D 20 08                jr      nz,.bad
+ 847  840F
+ 848  840F 11 20 00             ld      de,32
+ 849  8412 19                   add     hl,de
+ 850  8413 10 EB                djnz    .loop
+ 851  8415 B7                   or      a
+ 852  8416 C9                   ret
+ 853  8417              .bad
+ 854  8417 37                   scf
+ 855  8418 C9                   ret
+ 856  8419
+ 857  8419              ;------------------------------------------------------------------------------
+ 858  8419              ; Locate EasySD VDT without hardcoding its assembler-dependent address.
+ 859  8419              ;
+ 860  8419              ; EasySD 1.1 keeps the selected SD1/SD2 LBA at #3C90/#3C94 in the driver
+ 861  8419              ; page. We scan aligned xx00 candidates and require their selected record(s)
+ 862  8419              ; to contain the same four bytes. This keeps the switcher independent of the
+ 863  8419              ; exact length of SD_DRIVER.
+ 864  8419              ;
+ 865  8419              ; OUT HL = VDT base, carry clear
+ 866  8419              ;     carry set = not found
+ 867  8419              ;------------------------------------------------------------------------------
+ 868  8419
+ 869  8419              full_find_sd_vdt
+ 870  8419 21 00 10             ld      hl,#1000
+ 871  841C
+ 872  841C              .next_candidate
+ 873  841C E5                   push    hl
+ 874  841D CD 72 84             call    full_validate_vdt8
+ 875  8420 E1                   pop     hl
+ 876  8421 38 42                jr      c,.next
+ 877  8423
+ 878  8423 3A 4B 87             ld      a,(saved_sd1_partition)
+ 879  8426 CD 8D 84             call    full_valid_partition_a
+ 880  8429 38 0F                jr      c,.skip_sd1
+ 881  842B
+ 882  842B E5                   push    hl
+ 883  842C 3D                   dec     a
+ 884  842D CD F3 83             call    full_add_record_offset
+ 885  8430 23                   inc     hl
+ 886  8431 11 90 3C             ld      de,SD1_LBA_STORE
+ 887  8434 CD 99 84             call    full_compare4
+ 888  8437 E1                   pop     hl
+ 889  8438 20 2B                jr      nz,.next
+ 890  843A
+ 891  843A              .skip_sd1
+ 892  843A 3A 4C 87             ld      a,(saved_sd2_partition)
+ 893  843D CD 8D 84             call    full_valid_partition_a
+ 894  8440 38 11                jr      c,.skip_sd2
+ 895  8442
+ 896  8442 E5                   push    hl
+ 897  8443 3D                   dec     a
+ 898  8444 C6 04                add     a,4
+ 899  8446 CD F3 83             call    full_add_record_offset
+ 900  8449 23                   inc     hl
+ 901  844A 11 94 3C             ld      de,SD2_LBA_STORE
+ 902  844D CD 99 84             call    full_compare4
+ 903  8450 E1                   pop     hl
+ 904  8451 20 12                jr      nz,.next
+ 905  8453
+ 906  8453              .skip_sd2
+ 907  8453                      ; At least one selected partition must be valid, otherwise an all-zero
+ 908  8453                      ; aligned page could look like a VDT.
+ 909  8453 3A 4B 87             ld      a,(saved_sd1_partition)
+ 910  8456 CD 8D 84             call    full_valid_partition_a
+ 911  8459 30 15                jr      nc,.found
+ 912  845B 3A 4C 87             ld      a,(saved_sd2_partition)
+ 913  845E CD 8D 84             call    full_valid_partition_a
+ 914  8461 30 0D                jr      nc,.found
+ 915  8463 18 09                jr      .fail
+ 916  8465
+ 917  8465              .next
+ 918  8465 7C                   ld      a,h
+ 919  8466 3C                   inc     a
+ 920  8467 67                   ld      h,a
+ 921  8468 2E 00                ld      l,0
+ 922  846A FE 30                cp      #30                     ; scan #1000..#2F00
+ 923  846C 38 AE                jr      c,.next_candidate
+ 924  846E
+ 925  846E              .fail
+ 926  846E 37                   scf
+ 927  846F C9                   ret
+ 928  8470
+ 929  8470              .found
+ 930  8470 B7                   or      a
+ 931  8471 C9                   ret
+ 932  8472
+ 933  8472              ;------------------------------------------------------------------------------
+ 934  8472              ; Structural validation of 8 SD records.
+ 935  8472              ;------------------------------------------------------------------------------
+ 936  8472
+ 937  8472              full_validate_vdt8
+ 938  8472 06 08                ld      b,8
+ 939  8474              .loop
+ 940  8474 7E                   ld      a,(hl)
+ 941  8475 E6 F0                and     #F0
+ 942  8477 20 12                jr      nz,.bad
+ 943  8479
+ 944  8479 E5                   push    hl
+ 945  847A 11 05 00             ld      de,5
+ 946  847D 19                   add     hl,de
+ 947  847E 7E                   ld      a,(hl)
+ 948  847F E1                   pop     hl
+ 949  8480 B7                   or      a
+ 950  8481 20 08                jr      nz,.bad
+ 951  8483
+ 952  8483 11 20 00             ld      de,32
+ 953  8486 19                   add     hl,de
+ 954  8487 10 EB                djnz    .loop
+ 955  8489 B7                   or      a
+ 956  848A C9                   ret
+ 957  848B              .bad
+ 958  848B 37                   scf
+ 959  848C C9                   ret
+ 960  848D
+ 961  848D              ;------------------------------------------------------------------------------
+ 962  848D              ; A partition number. Carry clear = 1..4, carry set = invalid.
+ 963  848D              ; A is preserved.
+ 964  848D              ;------------------------------------------------------------------------------
+ 965  848D
+ 966  848D              full_valid_partition_a
+ 967  848D FE 01                cp      1
+ 968  848F 38 06                jr      c,.bad
+ 969  8491 FE 05                cp      5
+ 970  8493 30 02                jr      nc,.bad
+ 971  8495 B7                   or      a
+ 972  8496 C9                   ret
+ 973  8497              .bad
+ 974  8497 37                   scf
+ 975  8498 C9                   ret
+ 976  8499
+ 977  8499              ;------------------------------------------------------------------------------
+ 978  8499              ; Compare 4 bytes: HL vs DE. Z = equal.
+ 979  8499              ; Preserves HL/DE after comparison only conceptually not required by callers.
+ 980  8499              ;------------------------------------------------------------------------------
+ 981  8499
+ 982  8499              full_compare4
+ 983  8499 06 04                ld      b,4
+ 984  849B              .loop
+ 985  849B 1A                   ld      a,(de)
+ 986  849C BE                   cp      (hl)
+ 987  849D C0                   ret     nz
+ 988  849E 23                   inc     hl
+ 989  849F 13                   inc     de
+ 990  84A0 10 F9                djnz    .loop
+ 991  84A2 AF                   xor     a
+ 992  84A3 C9                   ret
+ 993  84A4
+ 994  84A4              ;------------------------------------------------------------------------------
+ 995  84A4              ; Find EasyCF 1.0.1 current_1st_sector self-modifying operands.
+ 996  84A4              ;
+ 997  84A4              ; Expected instruction:
+ 998  84A4              ;       LD HL,<low16>    21 ll hh
+ 999  84A4              ;       LD DE,<high16>   11 ll hh
+1000  84A4              ;       CALL ...         CD ...
+1001  84A4              ;
+1002  84A4              ; We additionally require the four immediate bytes to equal the LBA belonging
+1003  84A4              ; to the OLD saved CF partition, so a false positive in #0090..#0382 is very
+1004  84A4              ; unlikely.
+1005  84A4              ;
+1006  84A4              ; OUT:
+1007  84A4              ;   cf_lba_low_patch  = address of low16 operand
+1008  84A4              ;   cf_lba_high_patch = address of high16 operand
+1009  84A4              ;   carry clear = found
+1010  84A4              ;------------------------------------------------------------------------------
+1011  84A4
+1012  84A4              full_find_cf_lba_patch
+1013  84A4 21 00 10             ld      hl,CF_VDT_BASE
+1014  84A7 CD FE 83             call    full_validate_vdt4
+1015  84AA DA 31 85             jp      c,.fail
+1016  84AD
+1017  84AD                      ; Normal 1.1 path: try the known active partition first.
+1018  84AD 3A 4D 87             ld      a,(saved_cf_partition)
+1019  84B0 CD 8D 84             call    full_valid_partition_a
+1020  84B3 38 08                jr      c,.probe_all
+1021  84B5
+1022  84B5 3D                   dec     a
+1023  84B6 CD E3 84             call    .load_expected_lba
+1024  84B9 CD F3 84             call    .scan_driver
+1025  84BC D0                   ret     nc
+1026  84BD
+1027  84BD              .probe_all
+1028  84BD                      ; Standalone EasyCF has no ES11 partition byte. Try all four VDT LBAs
+1029  84BD                      ; and find which one is currently embedded in current_1st_sector.
+1030  84BD 3E 01                ld      a,1
+1031  84BF 32 4F 87             ld      (cf_probe_partition),a
+1032  84C2
+1033  84C2              .probe_loop
+1034  84C2 3A 4F 87             ld      a,(cf_probe_partition)
+1035  84C5 3D                   dec     a
+1036  84C6 CD E3 84             call    .load_expected_lba
+1037  84C9 CD F3 84             call    .scan_driver
+1038  84CC 30 0D                jr      nc,.probe_found
+1039  84CE
+1040  84CE 3A 4F 87             ld      a,(cf_probe_partition)
+1041  84D1 3C                   inc     a
+1042  84D2 32 4F 87             ld      (cf_probe_partition),a
+1043  84D5 FE 05                cp      5
+1044  84D7 38 E9                jr      c,.probe_loop
+1045  84D9 18 56                jr      .fail
+1046  84DB
+1047  84DB              .probe_found
+1048  84DB 3A 4F 87             ld      a,(cf_probe_partition)
+1049  84DE 32 4D 87             ld      (saved_cf_partition),a
+1050  84E1 B7                   or      a
+1051  84E2 C9                   ret
+1052  84E3
+1053  84E3              .load_expected_lba
+1054  84E3                      ; IN A = VDT record index 0..3
+1055  84E3 21 00 10             ld      hl,CF_VDT_BASE
+1056  84E6 CD F3 83             call    full_add_record_offset
+1057  84E9 23                   inc     hl
+1058  84EA 11 56 87             ld      de,cf_expected_lba
+1059  84ED 01 04 00             ld      bc,4
+1060  84F0 ED B0                ldir
+1061  84F2 C9                   ret
+1062  84F3
+1063  84F3              .scan_driver
+1064  84F3 21 90 00             ld      hl,#0090
+1065  84F6
+1066  84F6              .scan
+1067  84F6 7E                   ld      a,(hl)
+1068  84F7 FE 21                cp      #21
+1069  84F9 20 30                jr      nz,.next
+1070  84FB
+1071  84FB E5                   push    hl
+1072  84FC 23                   inc     hl
+1073  84FD 11 56 87             ld      de,cf_expected_lba
+1074  8500 06 02                ld      b,2
+1075  8502 CD 33 85             call    full_compare_n
+1076  8505 20 23                jr      nz,.candidate_bad
+1077  8507
+1078  8507 7E                   ld      a,(hl)
+1079  8508 FE 11                cp      #11
+1080  850A 20 1E                jr      nz,.candidate_bad
+1081  850C 23                   inc     hl
+1082  850D
+1083  850D 11 58 87             ld      de,cf_expected_lba+2
+1084  8510 06 02                ld      b,2
+1085  8512 CD 33 85             call    full_compare_n
+1086  8515 20 13                jr      nz,.candidate_bad
+1087  8517
+1088  8517 7E                   ld      a,(hl)
+1089  8518 FE CD                cp      #CD
+1090  851A 20 0E                jr      nz,.candidate_bad
+1091  851C
+1092  851C E1                   pop     hl
+1093  851D 23                   inc     hl
+1094  851E 22 52 87             ld      (cf_lba_low_patch),hl
+1095  8521 11 03 00             ld      de,3
+1096  8524 19                   add     hl,de
+1097  8525 22 54 87             ld      (cf_lba_high_patch),hl
+1098  8528 B7                   or      a
+1099  8529 C9                   ret
+1100  852A
+1101  852A              .candidate_bad
+1102  852A E1                   pop     hl
+1103  852B
+1104  852B              .next
+1105  852B 23                   inc     hl
+1106  852C 7C                   ld      a,h
+1107  852D FE 04                cp      #04
+1108  852F 38 C5                jr      c,.scan
+1109  8531
+1110  8531              .fail
+1111  8531 37                   scf
+1112  8532 C9                   ret
+1113  8533
+1114  8533              ; B-byte compare, HL and DE advanced. Z if equal.
+1115  8533              full_compare_n
+1116  8533              .loop
+1117  8533 1A                   ld      a,(de)
+1118  8534 BE                   cp      (hl)
+1119  8535 C0                   ret     nz
+1120  8536 23                   inc     hl
+1121  8537 13                   inc     de
+1122  8538 10 F9                djnz    .loop
+1123  853A AF                   xor     a
+1124  853B C9                   ret
+1125  853C
+1126  853C              ;------------------------------------------------------------------------------
+1127  853C              ; Catalogue fields in BSDOS page 97.
+1128  853C              ;   #0DC1..#0DC2 device (CF / S1 / S2)
+1129  853C              ;   #0DC3         SPACE control byte already present in BSDOS
+1130  853C              ;   #0DC4..#0DDD  26-character description
+1131  853C              ;   #0DDF..       partition field used by Switcher 1.1
+1132  853C              ;------------------------------------------------------------------------------
+1133  853C
+1134  853C              ; BSDOS page 97 must be mapped. API_TEXT contains exactly 26 bytes.
+1135  853C              ; If all bytes are zero, show EMPTY ENTRY. Otherwise copy all 26 bytes and
+1136  853C              ; translate zero padding to spaces for clean fixed-width catalogue output.
+1137  853C              full_catalog_text
+1138  853C 21 06 90             ld      hl,API_TEXT
+1139  853F 06 1A                ld      b,CAT_TEXT_LEN
+1140  8541              .check_nonzero
+1141  8541 7E                   ld      a,(hl)
+1142  8542 B7                   or      a
+1143  8543 20 0F                jr      nz,.normal_text
+1144  8545 23                   inc     hl
+1145  8546 10 F9                djnz    .check_nonzero
+1146  8548
+1147  8548 21 28 87             ld      hl,EMPTY_ENTRY_TEXT
+1148  854B 11 C4 0D             ld      de,CAT_TEXT
+1149  854E 01 1A 00             ld      bc,CAT_TEXT_LEN
+1150  8551 ED B0                ldir
+1151  8553 C9                   ret
+1152  8554
+1153  8554              .normal_text
+1154  8554 21 06 90             ld      hl,API_TEXT
+1155  8557 11 C4 0D             ld      de,CAT_TEXT
+1156  855A 06 1A                ld      b,CAT_TEXT_LEN
+1157  855C              .copy_loop
+1158  855C 7E                   ld      a,(hl)
+1159  855D B7                   or      a
+1160  855E 20 02                jr      nz,.store
+1161  8560 3E 20                ld      a,' '
+1162  8562              .store
+1163  8562 12                   ld      (de),a
+1164  8563 23                   inc     hl
+1165  8564 13                   inc     de
+1166  8565 10 F5                djnz    .copy_loop
+1167  8567 C9                   ret
+1168  8568
+1169  8568              ; Compute the current global record index from state saved by full_load_state.
+1170  8568              ; OUT A = 0..11 or #FF. Does not change memory mapping.
+1171  8568              full_active_index_from_saved
+1172  8568 3A 49 87             ld      a,(current_device)
+1173  856B B7                   or      a
+1174  856C 28 0B                jr      z,.cf
+1175  856E FE 01                cp      1
+1176  8570 28 11                jr      z,.sd1
+1177  8572 FE 02                cp      2
+1178  8574 28 18                jr      z,.sd2
+1179  8576 3E FF                ld      a,#FF
+1180  8578 C9                   ret
+1181  8579              .cf
+1182  8579 3A 4D 87             ld      a,(saved_cf_partition)
+1183  857C CD 8D 84             call    full_valid_partition_a
+1184  857F 38 18                jr      c,.unknown
+1185  8581 3D                   dec     a
+1186  8582 C9                   ret
+1187  8583              .sd1
+1188  8583 3A 4B 87             ld      a,(saved_sd1_partition)
+1189  8586 CD 8D 84             call    full_valid_partition_a
+1190  8589 38 0E                jr      c,.unknown
+1191  858B C6 03                add     a,3                       ; P1..P4 -> 4..7
+1192  858D C9                   ret
+1193  858E              .sd2
+1194  858E 3A 4C 87             ld      a,(saved_sd2_partition)
+1195  8591 CD 8D 84             call    full_valid_partition_a
+1196  8594 38 03                jr      c,.unknown
+1197  8596 C6 07                add     a,7                       ; P1..P4 -> 8..11
+1198  8598 C9                   ret
+1199  8599              .unknown
+1200  8599 3E FF                ld      a,#FF
+1201  859B C9                   ret
+1202  859C
+1203  859C              full_catalog_cf
+1204  859C 3A 45 87             ld      a,(selected_partition)
+1205  859F C6 30                add     a,'0'
+1206  85A1 67                   ld      h,a
+1207  85A2 2E 50                ld      l,'P'
+1208  85A4 22 DF 0D             ld      (CAT_PARTITION),hl
+1209  85A7 21 43 46             ld      hl,#4643                  ; "CF" in memory order
+1210  85AA 22 C1 0D             ld      (CAT_DEVICE),hl
+1211  85AD C9                   ret
+1212  85AE
+1213  85AE              full_catalog_sd
+1214  85AE 3A 45 87             ld      a,(selected_partition)
+1215  85B1 C6 30                add     a,'0'
+1216  85B3 57                   ld      d,a
+1217  85B4 1E 50                ld      e,'P'
+1218  85B6 ED 53 DF 0D          ld      (CAT_PARTITION),de
+1219  85BA
+1220  85BA 3A 42 87             ld      a,(selected_device)
+1221  85BD C6 30                add     a,'0'
+1222  85BF 67                   ld      h,a
+1223  85C0 2E 53                ld      l,'S'
+1224  85C2 22 C1 0D             ld      (CAT_DEVICE),hl
+1225  85C5 C9                   ret
+1226  85C6
+1227  85C6              ;------------------------------------------------------------------------------
+1228  85C6              ; API error/finish
+1229  85C6              ;------------------------------------------------------------------------------
+1230  85C6
+1231  85C6              api_error_install_mapped
+1232  85C6 3E 40                ld      a,NORMAL_MAPPING
+1233  85C8 D3 17                out     (23),a
+1234  85CA              api_error_install
+1235  85CA 3E 01                ld      a,1
+1236  85CC C3 DC 85             jp      api_finish_a
+1237  85CF
+1238  85CF              api_error_bad_index
+1239  85CF 3E 02                ld      a,2
+1240  85D1 C3 DC 85             jp      api_finish_a
+1241  85D4
+1242  85D4              api_error_unusable
+1243  85D4 3E 04                ld      a,4
+1244  85D6 C3 DC 85             jp      api_finish_a
+1245  85D9
+1246  85D9              api_error_from_a
+1247  85D9                      ; A already carries the result code from full_get_record_ptr.
+1248  85D9 C3 DC 85             jp      api_finish_a
+1249  85DC
+1250  85DC              api_finish_a
+1251  85DC 32 20 90             ld      (API_RESULT),a
+1252  85DF 4F                   ld      c,a
+1253  85E0 06 00                ld      b,0
+1254  85E2 3E 40                ld      a,NORMAL_MAPPING
+1255  85E4 D3 17                out     (23),a
+1256  85E6 FB                   ei
+1257  85E7 C9                   ret
+1258  85E8
+1259  85E8              ;==============================================================================
+1260  85E8              ; Original Switcher 1.1 detection
+1261  85E8              ;==============================================================================
+1262  85E8
+1263  85E8              ; OUT A = mask: bit0 CF, bit1 SD1, bit2 SD2.
+1264  85E8              ; Always restores #40 mapping.
+1265  85E8              detect_all
+1266  85E8 AF                   xor     a
+1267  85E9 32 47 87             ld      (availability_mask),a
+1268  85EC 3D                   dec     a
+1269  85ED 32 49 87             ld      (current_device),a
+1270  85F0
+1271  85F0 3E 61                ld      a,PAGE_BSDOS
+1272  85F2 D3 17                out     (23),a
+1273  85F4
+1274  85F4 2A 91 3C             ld      hl,(DOS_INSTALL_SIGNATURE)
+1275  85F7 11 45 53             ld      de,#5345
+1276  85FA B7                   or      a
+1277  85FB ED 52                sbc     hl,de
+1278  85FD C2 A6 86             jp      nz,.restore
+1279  8600
+1280  8600 2A 93 3C             ld      hl,(DOS_INSTALL_SIGNATURE+2)
+1281  8603 11 31 31             ld      de,#3131
+1282  8606 B7                   or      a
+1283  8607 ED 52                sbc     hl,de
+1284  8609 C2 A6 86             jp      nz,.restore
+1285  860C
+1286  860C 3A 1B 00             ld      a,(#001B)
+1287  860F FE 3E                cp      #3E
+1288  8611 C2 A6 86             jp      nz,.restore
+1289  8614 3A 1D 00             ld      a,(#001D)
+1290  8617 FE D3                cp      #D3
+1291  8619 C2 A6 86             jp      nz,.restore
+1292  861C 3A 1E 00             ld      a,(#001E)
+1293  861F FE 17                cp      #17
+1294  8621 C2 A6 86             jp      nz,.restore
+1295  8624 3A 1F 00             ld      a,(#001F)
+1296  8627 FE C9                cp      #C9
+1297  8629 C2 A6 86             jp      nz,.restore
+1298  862C
+1299  862C 3A 32 00             ld      a,(DOS_ACTIVE_DEVICE)
+1300  862F FE 03                cp      3
+1301  8631 30 03                jr      nc,.active_saved
+1302  8633 32 49 87             ld      (current_device),a
+1303  8636              .active_saved
+1304  8636 3A 33 00             ld      a,(DOS_PAGE_SD)
+1305  8639 32 4A 87             ld      (saved_sd_page),a
+1306  863C 3A 34 00             ld      a,(DOS_SD1_PARTITION)
+1307  863F 32 4B 87             ld      (saved_sd1_partition),a
+1308  8642 3A 35 00             ld      a,(DOS_SD2_PARTITION)
+1309  8645 32 4C 87             ld      (saved_sd2_partition),a
+1310  8648 3A 90 3C             ld      a,(DOS_CF_PARTITION)
+1311  864B 32 4D 87             ld      (saved_cf_partition),a
+1312  864E
+1313  864E                      ; CF: valid selected partition + EasyCF10 + 1.1 banking bridge.
+1314  864E FE 01                cp      1
+1315  8650 38 15                jr      c,.check_sd
+1316  8652 FE 05                cp      5
+1317  8654 30 11                jr      nc,.check_sd
+1318  8656
+1319  8656 3E 62                ld      a,PAGE_CF
+1320  8658 D3 17                out     (23),a
+1321  865A 11 02 87             ld      de,EASYCF_ID
+1322  865D CD E7 86             call    check_driver
+1323  8660 20 05                jr      nz,.check_sd
+1324  8662
+1325  8662 3E 01                ld      a,1
+1326  8664 32 47 87             ld      (availability_mask),a
+1327  8667
+1328  8667              .check_sd
+1329  8667 3A 4A 87             ld      a,(saved_sd_page)
+1330  866A FE 62                cp      PAGE_SD_ONLY_RAW
+1331  866C 28 08                jr      z,.sd_page_ok
+1332  866E FE 66                cp      PAGE_SD_MIN_RAW
+1333  8670 38 34                jr      c,.restore
+1334  8672 FE 81                cp      PAGE_SD_MAX_RAW+1
+1335  8674 30 30                jr      nc,.restore
+1336  8676              .sd_page_ok
+1337  8676 D3 17                out     (23),a
+1338  8678 11 0A 87             ld      de,EASYSD_ID
+1339  867B CD E7 86             call    check_driver
+1340  867E 20 26                jr      nz,.restore
+1341  8680
+1342  8680 3A 4B 87             ld      a,(saved_sd1_partition)
+1343  8683 FE 01                cp      1
+1344  8685 38 0C                jr      c,.check_sd2
+1345  8687 FE 05                cp      5
+1346  8689 30 08                jr      nc,.check_sd2
+1347  868B 3A 47 87             ld      a,(availability_mask)
+1348  868E F6 02                or      2
+1349  8690 32 47 87             ld      (availability_mask),a
+1350  8693
+1351  8693              .check_sd2
+1352  8693 3A 4C 87             ld      a,(saved_sd2_partition)
+1353  8696 FE 01                cp      1
+1354  8698 38 0C                jr      c,.restore
+1355  869A FE 05                cp      5
+1356  869C 30 08                jr      nc,.restore
+1357  869E 3A 47 87             ld      a,(availability_mask)
+1358  86A1 F6 04                or      4
+1359  86A3 32 47 87             ld      (availability_mask),a
+1360  86A6
+1361  86A6              .restore
+1362  86A6 3E 40                ld      a,NORMAL_MAPPING
+1363  86A8 D3 17                out     (23),a
+1364  86AA 3A 47 87             ld      a,(availability_mask)
+1365  86AD C9                   ret
+1366  86AE
+1367  86AE              ; If 1.1 is not installed, identify a legacy standalone driver in page 98.
+1368  86AE              ; OUT A=3 EasyHDD, 4 EasySD 1.0, 5 EasyCF, #FF unknown.
+1369  86AE              detect_legacy_system
+1370  86AE 3E 62                ld      a,PAGE_CF
+1371  86B0 D3 17                out     (23),a
+1372  86B2
+1373  86B2 11 02 87             ld      de,EASYCF_ID
+1374  86B5 CD FB 86             call    check_id
+1375  86B8 3E 05                ld      a,5
+1376  86BA 28 20                jr      z,.save
+1377  86BC
+1378  86BC 11 0A 87             ld      de,EASYSD_ID
+1379  86BF CD FB 86             call    check_id
+1380  86C2 3E 04                ld      a,4
+1381  86C4 28 16                jr      z,.save
+1382  86C6
+1383  86C6 11 12 87             ld      de,EASYHDD_207_ID
+1384  86C9 CD FB 86             call    check_id
+1385  86CC 3E 03                ld      a,3
+1386  86CE 28 0C                jr      z,.save
+1387  86D0
+1388  86D0 11 1A 87             ld      de,EASYHDD_OLD_ID
+1389  86D3 CD FB 86             call    check_id
+1390  86D6 3E 03                ld      a,3
+1391  86D8 28 02                jr      z,.save
+1392  86DA
+1393  86DA 3E FF                ld      a,#FF
+1394  86DC
+1395  86DC              .save
+1396  86DC 32 49 87             ld      (current_device),a
+1397  86DF 3E 40                ld      a,NORMAL_MAPPING
+1398  86E1 D3 17                out     (23),a
+1399  86E3 3A 49 87             ld      a,(current_device)
+1400  86E6 C9                   ret
+1401  86E7
+1402  86E7              ; DE = expected 8-byte identifier. Z = compatible driver.
+1403  86E7              check_driver
+1404  86E7 CD FB 86             call    check_id
+1405  86EA C0                   ret     nz
+1406  86EB
+1407  86EB 21 1B 00             ld      hl,#001B
+1408  86EE 11 22 87             ld      de,DRIVER_BRIDGE_SIGNATURE
+1409  86F1 06 06                ld      b,6
+1410  86F3
+1411  86F3              compare_bytes
+1412  86F3 1A                   ld      a,(de)
+1413  86F4 BE                   cp      (hl)
+1414  86F5 C0                   ret     nz
+1415  86F6 13                   inc     de
+1416  86F7 23                   inc     hl
+1417  86F8 10 F9                djnz    compare_bytes
+1418  86FA C9                   ret
+1419  86FB
+1420  86FB              ; DE = expected 8-byte identifier at offset #0008.
+1421  86FB              check_id
+1422  86FB 21 08 00             ld      hl,#0008
+1423  86FE 06 08                ld      b,8
+1424  8700 18 F1                jr      compare_bytes
+1425  8702
+1426  8702              ;==============================================================================
+1427  8702              ; Data
+1428  8702              ;==============================================================================
+1429  8702
+1430  8702 45 61 73 79  EASYCF_ID               db "EasyCF10"
+1430  8706 43 46 31 30
+1431  870A 45 61 73 79  EASYSD_ID               db "EasySD10"
+1431  870E 53 44 31 30
+1432  8712 48 64 64 45  EASYHDD_207_ID          db "HddEH207"
+1432  8716 48 32 30 37
+1433  871A 48 64 64 44  EASYHDD_OLD_ID          db "HddDrive"
+1433  871E 72 69 76 65
+1434  8722 3E 61 D3 17  DRIVER_BRIDGE_SIGNATURE db #3E,#61,#D3,#17,#18,#6F
+1434  8726 18 6F
+1435  8728 45 4D 50 54  EMPTY_ENTRY_TEXT        db "EMPTY ENTRY               "   ; exactly 26 bytes
+1435  872C 59 20 45 4E
+1435  8730 54 52 59 20
+1435  8734 20 20 20 20
+1435  8738 20 20 20 20
+1435  873C 20 20 20 20
+1435  8740 20 20
+1436  8742
+1437  8742 00           selected_device         db 0
+1438  8743 00           selected_slot           db 0
+1439  8744 00           selected_index          db 0
+1440  8745 00           selected_partition      db 0
+1441  8746 00           local_record            db 0
+1442  8747
+1443  8747 00           availability_mask       db 0
+1444  8748 00           cache_driver_mask       db 0
+1445  8749 FF           current_device          db #FF
+1446  874A 00           saved_sd_page           db 0
+1447  874B 00           saved_sd1_partition     db 0
+1448  874C 00           saved_sd2_partition     db 0
+1449  874D 00           saved_cf_partition      db 0
+1450  874E 00           standalone_cf_mode      db 0
+1451  874F 00           cf_probe_partition      db 0
+1452  8750
+1453  8750 00 00        selected_lba_store      dw 0
+1454  8752 00 00        cf_lba_low_patch        dw 0
+1455  8754 00 00        cf_lba_high_patch       dw 0
+1456  8756 00 00 00 00  cf_expected_lba         db 0,0,0,0
+1457  875A
+1458  875A
+1459  875A              ;==============================================================================
+1460  875A              ; FULL cache helper
+1461  875A              ;==============================================================================
+1462  875A              ; ENTRY_GET_ACTIVE_RECORD (#801A) keeps its original semantics, but before
+1463  875A              ; returning ACTIVE it now refreshes a contiguous 12-record cache for BASIC:
+1464  875A              ;   #9100..#917F = CF  P1..P4  (4 x 32 B)
+1465  875A              ;   #9180..#927F = SD1 P1..P4 + SD2 P1..P4 (8 x 32 B)
+1466  875A              ; This means the BASIC frontend needs only one USR call at startup instead of
+1467  875A              ; 12 GET_RECORD calls and never touches live VDT banks directly.
+1468  875A
+1469  875A              ; api_cache_all moved after renderer to keep #8800 fixed.
+1470  875A
+1471  875A              ; Keep backend below the alpha10 renderer at #8800.
+1472  875A              ; For --raw output, physically fill the gap so #8800 is exactly offset #0800
+1473  875A              ; from the CODE load address #8000. Do not use a second ORG here.
+1474  875A                      ASSERT $ <= #8800
+1475  875A 00 00 00...          defs    #8800-$,0
+1476  8800                      ASSERT $ = #8800
+1477  8800
+1478  8800              ;==============================================================================
+1479  8800              ; Fast display helper for Switcher 1.1 Full / alpha10 GUI
+1480  8800              ; #8800 draw all 12 cached rows
+1481  8800              ; #8803 draw one cached row, API_INDEX=#9000
+1482  8800              ; #8806 copy API_TEXT -> selected cache record
+1483  8800              ; #8809 print active VDT name (fast X-exit helper)
+1484  8800              ;==============================================================================
+1485  8800
+1486  8800              UI_SELECTED     equ #9024
+1487  8800              UI_DRIVER_MASK  equ #9025
+1488  8800              UI_SLOT_MASK    equ #9026
+1489  8800
+1490  8800 C3 0C 88             jp ui_draw_all
+1491  8803 C3 1B 88             jp ui_draw_one
+1492  8806 C3 7C 89             jp ui_sync_text
+1493  8809 C3 93 89             jp ui_print_active_name
+1494  880C
+1495  880C              ui_draw_all
+1496  880C AF                   xor a
+1497  880D              .loop
+1498  880D F5                   push af
+1499  880E 32 00 90             ld (API_INDEX),a
+1500  8811 CD 1B 88             call ui_draw_one
+1501  8814 F1                   pop af
+1502  8815 3C                   inc a
+1503  8816 FE 0C                cp 12
+1504  8818 38 F3                jr c,.loop
+1505  881A C9                   ret
+1506  881B
+1507  881B              ui_draw_one
+1508  881B 3A 00 90             ld a,(API_INDEX)
+1509  881E FE 0C                cp 12
+1510  8820 D0                   ret nc
+1511  8821 4F                   ld c,a
+1512  8822
+1513  8822 C6 02                add a,2
+1514  8824 57                   ld d,a
+1515  8825 3E 16                ld a,22
+1516  8827 CD DB 89             call ui_putc
+1517  882A 7A                   ld a,d
+1518  882B CD DB 89             call ui_putc
+1519  882E AF                   xor a
+1520  882F CD DB 89             call ui_putc
+1521  8832
+1522  8832 3E 11                ld a,17
+1523  8834 CD DB 89             call ui_putc
+1524  8837 3A 24 90             ld a,(UI_SELECTED)
+1525  883A B9                   cp c
+1526  883B 3E 00                ld a,0
+1527  883D 20 02                jr nz,.paper_ready
+1528  883F 3E 01                ld a,1                         ; selected row: BLUE paper
+1529  8841              .paper_ready
+1530  8841 CD DB 89             call ui_putc
+1531  8844
+1532  8844 3E 13                ld a,19
+1533  8846 CD DB 89             call ui_putc
+1534  8849 3E 01                ld a,1
+1535  884B CD DB 89             call ui_putc
+1536  884E
+1537  884E 3E 10                ld a,16
+1538  8850 CD DB 89             call ui_putc
+1539  8853 3E 06                ld a,6
+1540  8855 CD DB 89             call ui_putc
+1541  8858 3A 21 90             ld a,(API_ACTIVE)
+1542  885B B9                   cp c
+1543  885C 3E 20                ld a,' '
+1544  885E 20 02                jr nz,.marker_ready
+1545  8860 3E 2A                ld a,'*'
+1546  8862              .marker_ready
+1547  8862 CD DB 89             call ui_putc
+1548  8865
+1549  8865 79                   ld a,c
+1550  8866 CD CE 89             call ui_get_record_ptr
+1551  8869
+1552  8869                      ; Row state in E:
+1553  8869                      ;   0 = resident driver + slot/card present (normal VDT row)
+1554  8869                      ;   1 = resident driver missing -> NO DRIVER
+1555  8869                      ;   2 = EasySD driver exists, but this SD slot has no card/data block
+1556  8869                      ;       -> not inserted
+1557  8869                      ; C = 0..3 CF, 4..7 SD1, 8..11 SD2.
+1558  8869 79                   ld a,c
+1559  886A FE 04                cp 4
+1560  886C 38 0C                jr c,.drv_cf
+1561  886E FE 08                cp 8
+1562  8870 38 04                jr c,.drv_sd1
+1563  8872 16 04                ld d,4                         ; SD2 driver bit
+1564  8874 18 06                jr .drv_test
+1565  8876              .drv_sd1
+1566  8876 16 02                ld d,2                         ; SD1 driver bit
+1567  8878 18 02                jr .drv_test
+1568  887A              .drv_cf
+1569  887A 16 01                ld d,1                         ; CF driver bit
+1570  887C              .drv_test
+1571  887C 3A 25 90             ld a,(UI_DRIVER_MASK)
+1572  887F A2                   and d
+1573  8880 1E 01                ld e,1                         ; assume NO DRIVER
+1574  8882 28 18                jr z,.row_state_ready
+1575  8884
+1576  8884 AF                   xor a
+1577  8885 5F                   ld e,a                         ; driver exists -> normal by default
+1578  8886
+1579  8886                      ; CF has no removable SD slot state here. For SD1/SD2 additionally
+1580  8886                      ; require the corresponding 4-record VDT block to be present.
+1581  8886 79                   ld a,c
+1582  8887 FE 04                cp 4
+1583  8889 38 11                jr c,.row_state_ready
+1584  888B FE 08                cp 8
+1585  888D 3E 02                ld a,2                         ; SD1 slot bit
+1586  888F 38 02                jr c,.slot_test
+1587  8891 3E 04                ld a,4                         ; SD2 slot bit
+1588  8893              .slot_test
+1589  8893 57                   ld d,a
+1590  8894 3A 26 90             ld a,(UI_SLOT_MASK)
+1591  8897 A2                   and d
+1592  8898 20 02                jr nz,.row_state_ready
+1593  889A 1E 02                ld e,2                         ; driver exists, card/slot absent
+1594  889C
+1595  889C              .row_state_ready
+1596  889C                      ; NO DRIVER, not inserted and unusable partition are red.
+1597  889C                      ; Present + usable remains cyan.
+1598  889C 7B                   ld a,e
+1599  889D B7                   or a
+1600  889E 20 08                jr nz,.ink_red
+1601  88A0 CB 4E                bit 1,(hl)
+1602  88A2 28 04                jr z,.ink_red
+1603  88A4 3E 05                ld a,5
+1604  88A6 18 02                jr .ink_ready
+1605  88A8              .ink_red
+1606  88A8 3E 02                ld a,2
+1607  88AA              .ink_ready
+1608  88AA 57                   ld d,a
+1609  88AB 3E 10                ld a,16
+1610  88AD CD DB 89             call ui_putc
+1611  88B0 7A                   ld a,d
+1612  88B1 CD DB 89             call ui_putc
+1613  88B4
+1614  88B4 79                   ld a,c
+1615  88B5 FE 04                cp 4
+1616  88B7 38 40                jr c,.label_cf
+1617  88B9 FE 08                cp 8
+1618  88BB 38 1E                jr c,.label_s1
+1619  88BD
+1620  88BD 3E 53                ld a,'S'
+1621  88BF CD DB 89             call ui_putc
+1622  88C2 3E 32                ld a,'2'
+1623  88C4 CD DB 89             call ui_putc
+1624  88C7 3E 50                ld a,'P'
+1625  88C9 CD DB 89             call ui_putc
+1626  88CC 79                   ld a,c
+1627  88CD D6 08                sub 8
+1628  88CF C6 31                add a,'1'
+1629  88D1 CD DB 89             call ui_putc
+1630  88D4 3E 20                ld a,' '
+1631  88D6 CD DB 89             call ui_putc
+1632  88D9 18 38                jr .label_done
+1633  88DB
+1634  88DB              .label_s1
+1635  88DB 3E 53                ld a,'S'
+1636  88DD CD DB 89             call ui_putc
+1637  88E0 3E 31                ld a,'1'
+1638  88E2 CD DB 89             call ui_putc
+1639  88E5 3E 50                ld a,'P'
+1640  88E7 CD DB 89             call ui_putc
+1641  88EA 79                   ld a,c
+1642  88EB D6 04                sub 4
+1643  88ED C6 31                add a,'1'
+1644  88EF CD DB 89             call ui_putc
+1645  88F2 3E 20                ld a,' '
+1646  88F4 CD DB 89             call ui_putc
+1647  88F7 18 1A                jr .label_done
+1648  88F9
+1649  88F9              .label_cf
+1650  88F9 3E 43                ld a,'C'
+1651  88FB CD DB 89             call ui_putc
+1652  88FE 3E 46                ld a,'F'
+1653  8900 CD DB 89             call ui_putc
+1654  8903 3E 50                ld a,'P'
+1655  8905 CD DB 89             call ui_putc
+1656  8908 79                   ld a,c
+1657  8909 C6 31                add a,'1'
+1658  890B CD DB 89             call ui_putc
+1659  890E 3E 20                ld a,' '
+1660  8910 CD DB 89             call ui_putc
+1661  8913
+1662  8913              .label_done
+1663  8913                      ; Missing resident driver and missing SD card are distinct from an
+1664  8913                      ; empty VDT description.
+1665  8913 7B                   ld a,e
+1666  8914 B7                   or a
+1667  8915 28 12                jr z,.driver_text
+1668  8917 FE 02                cp 2
+1669  8919 28 07                jr z,.no_card_text
+1670  891B 21 FD 89             ld hl,ui_no_driver_text
+1671  891E 06 1A                ld b,26
+1672  8920 18 20                jr .print_fixed
+1673  8922              .no_card_text
+1674  8922 21 17 8A             ld hl,ui_not_inserted_text
+1675  8925 06 1A                ld b,26
+1676  8927 18 19                jr .print_fixed
+1677  8929
+1678  8929              .driver_text
+1679  8929 11 06 00             ld de,6
+1680  892C 19                   add hl,de
+1681  892D E5                   push hl
+1682  892E 06 1A                ld b,26
+1683  8930              .scan_nonzero
+1684  8930                      ; Standalone EasyCF 1.0.1 may leave old/undefined bytes in the
+1685  8930                      ; 26-byte Full text area. Only printable ASCII 32..126 counts as text.
+1686  8930 7E                   ld a,(hl)
+1687  8931 FE 20                cp 32
+1688  8933 38 04                jr c,.scan_next
+1689  8935 FE 7F                cp 127
+1690  8937 38 12                jr c,.normal_text
+1691  8939              .scan_next
+1692  8939 23                   inc hl
+1693  893A 10 F4                djnz .scan_nonzero
+1694  893C
+1695  893C E1                   pop hl
+1696  893D 21 E3 89             ld hl,ui_empty_text
+1697  8940 06 1A                ld b,26
+1698  8942              .print_fixed
+1699  8942 7E                   ld a,(hl)
+1700  8943 CD DB 89             call ui_putc
+1701  8946 23                   inc hl
+1702  8947 10 F9                djnz .print_fixed
+1703  8949 18 14                jr .row_done
+1704  894B
+1705  894B              .normal_text
+1706  894B E1                   pop hl
+1707  894C 06 1A                ld b,26
+1708  894E              .print_normal
+1709  894E 7E                   ld a,(hl)
+1710  894F FE 20                cp 32
+1711  8951 38 04                jr c,.char_space
+1712  8953 FE 7F                cp 127
+1713  8955 38 02                jr c,.char_ready
+1714  8957              .char_space
+1715  8957 3E 20                ld a,' '
+1716  8959              .char_ready
+1717  8959 CD DB 89             call ui_putc
+1718  895C 23                   inc hl
+1719  895D 10 EF                djnz .print_normal
+1720  895F
+1721  895F              .row_done
+1722  895F 3E 11                ld a,17
+1723  8961 CD DB 89             call ui_putc
+1724  8964 AF                   xor a
+1725  8965 CD DB 89             call ui_putc
+1726  8968 3E 13                ld a,19
+1727  896A CD DB 89             call ui_putc
+1728  896D AF                   xor a
+1729  896E CD DB 89             call ui_putc
+1730  8971 3E 10                ld a,16
+1731  8973 CD DB 89             call ui_putc
+1732  8976 3E 07                ld a,7
+1733  8978 CD DB 89             call ui_putc
+1734  897B C9                   ret
+1735  897C
+1736  897C              ui_sync_text
+1737  897C 3A 00 90             ld a,(API_INDEX)
+1738  897F FE 0C                cp 12
+1739  8981 D0                   ret nc
+1740  8982 CD CE 89             call ui_get_record_ptr
+1741  8985 11 06 00             ld de,6
+1742  8988 19                   add hl,de
+1743  8989 EB                   ex de,hl
+1744  898A 21 06 90             ld hl,API_TEXT
+1745  898D 01 1A 00             ld bc,26
+1746  8990 ED B0                ldir
+1747  8992 C9                   ret
+1748  8993
+1749  8993              ;------------------------------------------------------------------------------
+1750  8993              ; #8809 - fast X-exit helper.
+1751  8993              ; Prints ONLY the active record's VDT name directly from cache.
+1752  8993              ; BASIC still prints "CF/S1/S2 Pn " and " now active".
+1753  8993              ; This avoids the slow 26x PEEK loop in BASIC routine 5600.
+1754  8993              ;------------------------------------------------------------------------------
+1755  8993              ui_print_active_name
+1756  8993 3A 21 90             ld a,(API_ACTIVE)
+1757  8996 FE 0C                cp 12
+1758  8998 D0                   ret nc
+1759  8999 CD CE 89             call ui_get_record_ptr
+1760  899C 11 06 00             ld de,6
+1761  899F 19                   add hl,de
+1762  89A0 E5                   push hl                         ; remember text start
+1763  89A1
+1764  89A1                      ; Find last printable non-space character.
+1765  89A1                      ; B becomes the exact number of characters to print (1..26).
+1766  89A1 11 19 00             ld de,25
+1767  89A4 19                   add hl,de
+1768  89A5 06 1A                ld b,26
+1769  89A7              .find_last
+1770  89A7 7E                   ld a,(hl)
+1771  89A8 FE 21                cp 33                           ; zero/control/space -> keep looking
+1772  89AA 38 04                jr c,.previous
+1773  89AC FE 7F                cp 127
+1774  89AE 38 0B                jr c,.have_name
+1775  89B0              .previous
+1776  89B0 2B                   dec hl
+1777  89B1 10 F4                djnz .find_last
+1778  89B3
+1779  89B3                      ; No printable non-space text -> print "EMPTY ENTRY" without padding.
+1780  89B3 E1                   pop hl
+1781  89B4 21 E3 89             ld hl,ui_empty_text
+1782  89B7 06 0B                ld b,11
+1783  89B9 18 01                jr .print_chars
+1784  89BB
+1785  89BB              .have_name
+1786  89BB E1                   pop hl                          ; restore text start
+1787  89BC              .print_chars
+1788  89BC 7E                   ld a,(hl)
+1789  89BD FE 20                cp 32
+1790  89BF 38 04                jr c,.as_space
+1791  89C1 FE 7F                cp 127
+1792  89C3 38 02                jr c,.char_ready
+1793  89C5              .as_space
+1794  89C5 3E 20                ld a,' '
+1795  89C7              .char_ready
+1796  89C7 CD DB 89             call ui_putc
+1797  89CA 23                   inc hl
+1798  89CB 10 EF                djnz .print_chars
+1799  89CD C9                   ret
+1800  89CE
+1801  89CE              ui_get_record_ptr
+1802  89CE 6F                   ld l,a
+1803  89CF 26 00                ld h,0
+1804  89D1 29                   add hl,hl
+1805  89D2 29                   add hl,hl
+1806  89D3 29                   add hl,hl
+1807  89D4 29                   add hl,hl
+1808  89D5 29                   add hl,hl
+1809  89D6 11 00 91             ld de,API_CACHE_BASE
+1810  89D9 19                   add hl,de
+1811  89DA C9                   ret
+1812  89DB
+1813  89DB              ui_putc
+1814  89DB C5                   push bc
+1815  89DC D5                   push de
+1816  89DD E5                   push hl
+1817  89DE D7                   rst #10
+1818  89DF E1                   pop hl
+1819  89E0 D1                   pop de
+1820  89E1 C1                   pop bc
+1821  89E2 C9                   ret
+1822  89E3
+1823  89E3              ui_empty_text
+1824  89E3 45 4D 50 54          db "EMPTY ENTRY               "
+1824  89E7 59 20 45 4E
+1824  89EB 54 52 59 20
+1824  89EF 20 20 20 20
+1824  89F3 20 20 20 20
+1824  89F7 20 20 20 20
+1824  89FB 20 20
+1825  89FD              ui_no_driver_text
+1826  89FD 4E 4F 20 44          db "NO DRIVER                 "
+1826  8A01 52 49 56 45
+1826  8A05 52 20 20 20
+1826  8A09 20 20 20 20
+1826  8A0D 20 20 20 20
+1826  8A11 20 20 20 20
+1826  8A15 20 20
+1827  8A17              ui_not_inserted_text
+1828  8A17 6E 6F 74 20          db "not inserted              "
+1828  8A1B 69 6E 73 65
+1828  8A1F 72 74 65 64
+1828  8A23 20 20 20 20
+1828  8A27 20 20 20 20
+1828  8A2B 20 20 20 20
+1828  8A2F 20 20
+1829  8A31
+1830  8A31              ;==============================================================================
+1831  8A31              ; Cache helper moved here so alpha10 renderer can stay fixed at #8800.
+1832  8A31              ; ENTRY_GET_ACTIVE_RECORD (#801A) reaches this routine through absolute JP.
+1833  8A31              ;==============================================================================
+1834  8A31
+1835  8A31              api_cache_all
+1836  8A31 F3                   di
+1837  8A32
+1838  8A32                      ; Start with a fully empty cache and no detected drivers. This lets
+1839  8A32                      ; Full display NO DRIVER instead of aborting when only part (or none)
+1840  8A32                      ; of the resident system is available.
+1841  8A32 AF                   xor     a
+1842  8A33 32 48 87             ld      (cache_driver_mask),a
+1843  8A36 32 25 90             ld      (API_DRIVER_MASK),a
+1844  8A39 32 26 90             ld      (API_SLOT_MASK),a
+1845  8A3C 32 4A 87             ld      (saved_sd_page),a
+1846  8A3F 32 4B 87             ld      (saved_sd1_partition),a
+1847  8A42 32 4C 87             ld      (saved_sd2_partition),a
+1848  8A45 32 4D 87             ld      (saved_cf_partition),a
+1849  8A48 32 4E 87             ld      (standalone_cf_mode),a
+1850  8A4B 3D                   dec     a
+1851  8A4C 32 49 87             ld      (current_device),a
+1852  8A4F 32 21 90             ld      (API_ACTIVE),a
+1853  8A52
+1854  8A52 21 00 91             ld      hl,API_CACHE_BASE
+1855  8A55 11 01 91             ld      de,API_CACHE_BASE+1
+1856  8A58 01 7F 01             ld      bc,12*32-1
+1857  8A5B AF                   xor     a
+1858  8A5C 77                   ld      (hl),a
+1859  8A5D ED B0                ldir
+1860  8A5F
+1861  8A5F                      ; Load ES11 state when present. Failure is deliberately non-fatal:
+1862  8A5F                      ; we still probe standalone EasyCF and render missing systems as
+1863  8A5F                      ; NO DRIVER.
+1864  8A5F CD E6 82             call    full_load_state
+1865  8A62
+1866  8A62                      ; --- CF driver -------------------------------------------------------
+1867  8A62                      ; EasyCF 1.0/1.0.1 is a valid CF system even without the ES11 bridge,
+1868  8A62                      ; so identify it by EasyCF10 and validate its VDT independently.
+1869  8A62 3E 62                ld      a,PAGE_CF
+1870  8A64 D3 17                out     (23),a
+1871  8A66 11 02 87             ld      de,EASYCF_ID
+1872  8A69 CD FB 86             call    check_id
+1873  8A6C 20 22                jr      nz,.cf_done
+1874  8A6E
+1875  8A6E                      ; The identifier is enough to say that the CF driver exists. A broken
+1876  8A6E                      ; or empty VDT is NOT "NO DRIVER"; it is rendered as unusable/empty.
+1877  8A6E 3A 48 87             ld      a,(cache_driver_mask)
+1878  8A71 F6 01                or      1
+1879  8A73 32 48 87             ld      (cache_driver_mask),a
+1880  8A76
+1881  8A76 21 00 10             ld      hl,CF_VDT_BASE
+1882  8A79 CD FE 83             call    full_validate_vdt4
+1883  8A7C 38 0B                jr      c,.cf_present_no_vdt
+1884  8A7E
+1885  8A7E 21 00 10             ld      hl,CF_VDT_BASE
+1886  8A81 11 00 91             ld      de,API_CACHE_BASE
+1887  8A84 01 80 00             ld      bc,4*32
+1888  8A87 ED B0                ldir
+1889  8A89
+1890  8A89              .cf_present_no_vdt
+1891  8A89
+1892  8A89                      ; If this is standalone CF, full_load_state may already have recovered
+1893  8A89                      ; the active partition and patch operands. If it did not, try once
+1894  8A89                      ; more while the CF page is mapped; failure is non-fatal for display.
+1895  8A89 3A 4E 87             ld      a,(standalone_cf_mode)
+1896  8A8C B7                   or      a
+1897  8A8D C4 A4 84             call    nz,full_find_cf_lba_patch
+1898  8A90
+1899  8A90              .cf_done
+1900  8A90                      ; --- SD driver -------------------------------------------------------
+1901  8A90                      ; SD1 and SD2 share one EasySD 1.1 driver. A valid saved page exists
+1902  8A90                      ; only when ES11 state was successfully read. If that driver exists,
+1903  8A90                      ; both SD1 and SD2 systems are considered present; per-card absence is
+1904  8A90                      ; represented by their VDT contents (for example "not inserted").
+1905  8A90 3A 4A 87             ld      a,(saved_sd_page)
+1906  8A93 FE 62                cp      PAGE_SD_ONLY_RAW
+1907  8A95 28 08                jr      z,.sd_page_ok
+1908  8A97 FE 66                cp      PAGE_SD_MIN_RAW
+1909  8A99 38 4D                jr      c,.sd_done
+1910  8A9B FE 81                cp      PAGE_SD_MAX_RAW+1
+1911  8A9D 30 49                jr      nc,.sd_done
+1912  8A9F              .sd_page_ok
+1913  8A9F D3 17                out     (23),a
+1914  8AA1 11 0A 87             ld      de,EASYSD_ID
+1915  8AA4 CD E7 86             call    check_driver
+1916  8AA7 20 3F                jr      nz,.sd_done
+1917  8AA9
+1918  8AA9                      ; One resident EasySD 1.1 driver serves both SD1 and SD2. Once the
+1919  8AA9                      ; driver itself is detected, neither block is "NO DRIVER" even if a
+1920  8AA9                      ; card/VDT entry is absent or unusable.
+1921  8AA9 3A 48 87             ld      a,(cache_driver_mask)
+1922  8AAC F6 06                or      6                       ; bit1 SD1 + bit2 SD2
+1923  8AAE 32 48 87             ld      (cache_driver_mask),a
+1924  8AB1
+1925  8AB1 CD 19 84             call    full_find_sd_vdt
+1926  8AB4 38 32                jr      c,.sd_done
+1927  8AB6
+1928  8AB6 11 80 91             ld      de,API_CACHE_BASE+4*32
+1929  8AB9 01 00 01             ld      bc,8*32
+1930  8ABC ED B0                ldir
+1931  8ABE
+1932  8ABE                      ; Determine SD1/SD2 card presence independently from driver presence.
+1933  8ABE                      ; A completely zero 4x32-byte VDT block is the representation left for
+1934  8ABE                      ; an absent slot. Any non-zero byte means the slot/card produced VDT
+1935  8ABE                      ; information, even when none of its partitions is BSDOS-usable.
+1936  8ABE AF                   xor     a
+1937  8ABF 32 26 90             ld      (API_SLOT_MASK),a
+1938  8AC2
+1939  8AC2 21 80 91             ld      hl,API_CACHE_BASE+4*32
+1940  8AC5 01 80 00             ld      bc,4*32
+1941  8AC8 CD 65 8B             call    cache_block_nonzero
+1942  8ACB 28 08                jr      z,.slot1_done
+1943  8ACD 3A 26 90             ld      a,(API_SLOT_MASK)
+1944  8AD0 F6 02                or      2
+1945  8AD2 32 26 90             ld      (API_SLOT_MASK),a
+1946  8AD5              .slot1_done
+1947  8AD5
+1948  8AD5 21 00 92             ld      hl,API_CACHE_BASE+8*32
+1949  8AD8 01 80 00             ld      bc,4*32
+1950  8ADB CD 65 8B             call    cache_block_nonzero
+1951  8ADE 28 08                jr      z,.slot2_done
+1952  8AE0 3A 26 90             ld      a,(API_SLOT_MASK)
+1953  8AE3 F6 04                or      4
+1954  8AE5 32 26 90             ld      (API_SLOT_MASK),a
+1955  8AE8              .slot2_done
+1956  8AE8
+1957  8AE8              .sd_done
+1958  8AE8 3A 48 87             ld      a,(cache_driver_mask)
+1959  8AEB 32 25 90             ld      (API_DRIVER_MASK),a
+1960  8AEE
+1961  8AEE                      ; Derive active record only from state which is actually available.
+1962  8AEE 3E FF                ld      a,#FF
+1963  8AF0 32 21 90             ld      (API_ACTIVE),a
+1964  8AF3
+1965  8AF3 3A 4E 87             ld      a,(standalone_cf_mode)
+1966  8AF6 B7                   or      a
+1967  8AF7 28 15                jr      z,.active_es11
+1968  8AF9
+1969  8AF9 3A 48 87             ld      a,(cache_driver_mask)
+1970  8AFC E6 01                and     1
+1971  8AFE 28 5D                jr      z,.finish
+1972  8B00 3A 4D 87             ld      a,(saved_cf_partition)
+1973  8B03 CD 8D 84             call    full_valid_partition_a
+1974  8B06 38 55                jr      c,.finish
+1975  8B08 3D                   dec     a
+1976  8B09 32 21 90             ld      (API_ACTIVE),a
+1977  8B0C 18 4F                jr      .finish
+1978  8B0E
+1979  8B0E              .active_es11
+1980  8B0E                      ; If ES11 state was read, translate its saved device/partition locally.
+1981  8B0E 3A 49 87             ld      a,(current_device)
+1982  8B11 B7                   or      a
+1983  8B12 28 0A                jr      z,.active_cf
+1984  8B14 FE 01                cp      1
+1985  8B16 28 1B                jr      z,.active_sd1
+1986  8B18 FE 02                cp      2
+1987  8B1A 28 2D                jr      z,.active_sd2
+1988  8B1C 18 3F                jr      .finish
+1989  8B1E
+1990  8B1E              .active_cf
+1991  8B1E 3A 48 87             ld      a,(cache_driver_mask)
+1992  8B21 E6 01                and     1
+1993  8B23 28 38                jr      z,.finish
+1994  8B25 3A 4D 87             ld      a,(saved_cf_partition)
+1995  8B28 CD 8D 84             call    full_valid_partition_a
+1996  8B2B 38 30                jr      c,.finish
+1997  8B2D 3D                   dec     a
+1998  8B2E 32 21 90             ld      (API_ACTIVE),a
+1999  8B31 18 2A                jr      .finish
+2000  8B33
+2001  8B33              .active_sd1
+2002  8B33 3A 48 87             ld      a,(cache_driver_mask)
+2003  8B36 E6 02                and     2
+2004  8B38 28 23                jr      z,.finish
+2005  8B3A 3A 4B 87             ld      a,(saved_sd1_partition)
+2006  8B3D CD 8D 84             call    full_valid_partition_a
+2007  8B40 38 1B                jr      c,.finish
+2008  8B42 C6 03                add     a,3                     ; P1 -> global 4
+2009  8B44 32 21 90             ld      (API_ACTIVE),a
+2010  8B47 18 14                jr      .finish
+2011  8B49
+2012  8B49              .active_sd2
+2013  8B49 3A 48 87             ld      a,(cache_driver_mask)
+2014  8B4C E6 04                and     4
+2015  8B4E 28 0D                jr      z,.finish
+2016  8B50 3A 4C 87             ld      a,(saved_sd2_partition)
+2017  8B53 CD 8D 84             call    full_valid_partition_a
+2018  8B56 38 05                jr      c,.finish
+2019  8B58 C6 07                add     a,7                     ; P1 -> global 8
+2020  8B5A 32 21 90             ld      (API_ACTIVE),a
+2021  8B5D
+2022  8B5D              .finish
+2023  8B5D 3E 40                ld      a,NORMAL_MAPPING
+2024  8B5F D3 17                out     (23),a
+2025  8B61 AF                   xor     a
+2026  8B62 C3 DC 85             jp      api_finish_a
+2027  8B65
+2028  8B65              ;------------------------------------------------------------------------------
+2029  8B65              ; Test whether BC-byte cache block at HL contains at least one non-zero byte.
+2030  8B65              ; OUT: Z = block all zero, NZ = at least one non-zero byte.
+2031  8B65              ; HL/BC destroyed.
+2032  8B65              ;------------------------------------------------------------------------------
+2033  8B65              cache_block_nonzero
+2034  8B65              .loop
+2035  8B65 7E                   ld      a,(hl)
+2036  8B66 B7                   or      a
+2037  8B67 C0                   ret     nz
+2038  8B68 23                   inc     hl
+2039  8B69 0B                   dec     bc
+2040  8B6A 78                   ld      a,b
+2041  8B6B B1                   or      c
+2042  8B6C 20 F7                jr      nz,.loop
+2043  8B6E AF                   xor     a
+2044  8B6F C9                   ret
+2045  8B70
+2046  8B70                      ASSERT $ < #9000
+2047  8B70                      END
+# file closed: FULL_SWITCHER_1_1.a80

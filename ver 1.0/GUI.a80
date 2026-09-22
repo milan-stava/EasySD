@@ -1,0 +1,3942 @@
+;dokumentace k FAT- bomba
+;https://elm-chan.org/docs/fat_e.html
+
+;		include	"nasobeniHLDE.a80"
+;		include	"draw.a80"
+		include	"draw-jugo.a80"
+		include	"cls.a80"
+;		include	"sprite1.a80"
+CaroLogo	incbin	"CaroLogo.bin"
+NewdimLogo	incbin	"NewdimLogo.bin"
+		include	"sprite2.a80"
+eightbc_i	incbin	"8BC_I.cde"
+;EasyLogoSmall	incbin	"EasyLogoSmall.bin"
+EasyLogoSmall	incbin	"ehSDnewlogo.cde"
+;		include "lbaread.a80"	;vlozeno primo do kodu GUI
+;		include "sd_rw.asm"	;SD card init, read, write---dame to dozadu
+zvuk		incbin	"ZVUK.BIN"
+zvukend
+
+@SP_TAB
+@TAB_sprite1	defb	10,2
+		defw	CaroLogo
+		defb	24,20
+		defw	NewdimLogo
+		defb	0,21
+		defw	eightbc_i
+		defb	1,2
+		defw	eightbc_i
+;		defb	25,2
+;		defw	EasyLogoSmall
+
+
+	module	GUI
+
+	SD_DRIVER 0
+
+zvukcmp equ	60000		;adresa zkopilovaneho zvuku
+
+gui	di
+;	xor	a
+;	out	(254),a
+
+;;	call	SD_INIT		;testing purposes, was working good
+;;	jp	L3+6
+
+;splash screen
+	ld	a,(@showsplash)
+	or	a
+	jr	z,nosplash
+
+	ld	hl,zvuk
+	ld	de,zvukcmp
+	ld	bc,zvukend-zvuk
+	ldir
+; presune zvuk na sve misto
+
+; init
+	call	cls.CLS
+
+	ld	a,2
+	call	sprite2.SP_
+	ld	a,1
+	ld	b,10		;was 40
+	call	zvukplay
+
+	ld	a,1
+	call	sprite2.SP_
+	ld	a,2
+	ld	b,10		;was 40
+	call	zvukplay
+	xor	a
+	call	sprite2.SP_
+
+;/*	ld	hl,22528+256+32
+;	ld	de,22529+256+32
+;	ld	bc,255-32
+;	ld	(hl),6
+;	ldir
+;*/
+	ld	hl,TEXT2
+	ld	bc,#0a0d
+	call	T42_TEXT
+	ld	a,3
+	ld	b,100		;was 128
+	call	zvukplay
+	call	zvukcmp+57	;ticho
+;	call	ANYKEY
+
+nosplash
+	call	cls.CLS
+	call	T_START
+; vykresli tabulku
+	ld	a,3
+	call	sprite2.SP_
+;	ld	a,4
+	ld	a,3
+	call	sprite2.SP_
+	call	EasyLogoSmall		;nove logo Easy SD
+	ld	hl,TEXT1		;vrchni prostredni tabulka
+
+	IFDEF	ELEMENT
+	ld	bc,#020b
+	ELSE
+	ld	bc,#020C
+	ENDIF
+
+	call	T42_TEXT
+	ld	hl,TEXT2
+	ld	bc,#030d
+	call	T42_TEXT
+;carymary
+	ld	bc,#0E3b
+	ld	de,#0EBF
+	call	draw_jugo.DRAW
+	ld	bc,#213b
+	ld	de,#21BF
+	call	draw_jugo.DRAW
+	ld	bc,#0F3a
+	ld	de,#203a
+	call	draw_jugo.DRAW
+	ld	bc,#0FC0
+	ld	de,#20C0
+	call	draw_jugo.DRAW
+
+;MASTER IDENTIFY
+	ld	hl,TEXT3	
+	ld	bc,#0502
+	call	T42_TEXT
+
+	ld	hl,TEXT8
+	ld	bc,#050A
+	call	T42_TEXT	;piseme checking...	
+
+	call	SD_INIT		;initialise SD card
+	or	a
+	jr	z,SD_INIT_OK
+
+; Bez karty: vypis chybu a rovnou ukonci EasySD.
+;	Do CID/CSD ani vyberu partitions uz nepokracujeme.
+	ld	hl,TEXT_SD_NOT_FOUND
+	ld	bc,#050A
+	call	T42_TEXT
+	call	ANYKEY
+	jp	end_easy_exit
+
+SD_INIT_OK
+					;identifikace SD karty
+	call	SD_ON
+	ld	ix,BUFFER
+	call	SD_CID			;nacti registry SD karty
+	ld	ix,BUFFER+16
+	call	SD_CSD			;nacti dalsi registry SD karty
+	call	SD_OFF
+	jr	MASTERINFO
+
+MASTERINFO
+	ld	hl,TEXT4	;nejdriv vypise texty
+	ld	bc,#0602
+	call	T42_TEXT
+	ld	hl,TEXT_CSD
+	ld	bc,#061F
+	call	T42_TEXT
+	ld	hl,TEXT5
+	ld	bc,#0702
+	call	T42_TEXT
+	ld	hl,TEXT6
+	ld	bc,#0802
+	call	T42_TEXT
+
+	ld	hl,TEXT7
+	ld	bc,#0902
+	call	T42_TEXT
+;	ld	hl,TEXT101
+;	ld	bc,#0A02
+;	call	T42_TEXT		;write protect davame pryc
+;	ld	hl,TEXT_PART_TYPE
+;	ld	bc,#0C02
+	call	T42_TEXT
+;	ld	hl,TEXT102
+;	ld	bc,#0A15
+;	call	T42_TEXT
+;
+;model-MID/OID/PNM
+;	ld	hl,BUFFER+54
+;	ld	b,40
+;	call	PROHOD
+	ld	ix,BUFFER
+	ld	a,(ix)
+
+	cp	1
+	ld	hl,Manufacturer1
+	jr	z,mdl1
+	cp	2
+	ld	hl,Manufacturer2
+	jr	z,mdl1
+	cp	3
+	ld	hl,Manufacturer3
+	jr	z,mdl1
+	cp	#1b
+	ld	hl,Manufacturer1b
+	jr	z,mdl1
+	cp	#1d
+	ld	hl,Manufacturer1d
+	jr	z,mdl1
+	cp	#27
+	ld	hl,Manufacturer27
+	jr	z,mdl1
+	cp	#31
+	ld	hl,Manufacturer31
+	jr	z,mdl1
+	cp	#74
+	ld	hl,Manufacturer74
+	jr	z,mdl1
+	cp	#9f			; Kingston SD (CID MID #9F)
+	ld	hl,Manufacturer9f
+	jr	z,mdl1
+	ld	ix,BUFFER
+	ld	hl,ManufacturerOther	; unknown manufacturer
+
+;	set	7,(ix+84)
+
+mdl1	dec	hl
+	ld	(hl),69
+	dec	hl
+	ld	(hl),16		;obarvi
+	ld	bc,#050A
+	call	T42_TEXT
+	ld	hl,carka
+	call	T42_TEXT
+
+;card info
+	set	7,(ix+2)
+;	ld	bc,#0612
+	ld	hl,BUFFER+1
+	call	T42_TEXT
+	push	hl
+	ld	hl,carka
+	call	T42_TEXT
+	pop	hl
+	set	7,(ix+7)
+;	ld	bc,#0615
+	inc	hl
+	call	T42_TEXT
+
+
+
+;firmware/ProductRevisionNr
+;	ld	hl,BUFFER+46
+;	ld	b,8
+;	call	PROHOD
+;	set	7,(ix+53)
+;
+;	ld	bc,#070C
+;	call	T42_TEXT
+
+	inc	hl
+	ld	a,(hl)		; CID PRV: high nibble=major, low nibble=minor
+	ld	b,a
+	rrca
+	rrca
+	rrca
+	rrca
+	and	#0f
+	add	a,'0'
+	ld	(REV_TEXT),a
+	ld	a,b
+	and	#0f
+	add	a,'0'
+	or	#80		; posledni znak textu pro T42_TEXT
+	ld	(REV_TEXT+2),a
+	ld	hl,REV_TEXT
+	ld	bc,#0616
+	call	T42_TEXT
+
+;serial number/ProductSerialNr
+;	ld	hl,BUFFER+20
+;	ld	b,20
+;	call	PROHOD
+;	set	7,(ix+39)
+;
+;	ld	bc,#0811
+;	call	T42_TEXT
+
+	ld	b,4
+	ld	hl,BUFFER+9
+	ld	de,#0714
+snm1	push	bc
+	push	hl
+	push	de
+	ld	l,(hl)
+	ld	h,0
+	pop	bc		;BC=DE=position
+	call	NUMBER2
+	inc	c
+	ld	hl,carka
+	call	T42_TEXT
+	pop	hl
+	inc	hl
+	ld	d,b
+	ld	e,c
+	pop	bc
+	djnz	snm1
+
+	push	de
+	pop	bc
+	dec	c
+	ld	hl,TEXT13+15		;smaz posledni carku
+	call	T42_TEXT
+
+;Manucfacturing Date (eg.#0133)
+	ld	a,(ix+14)
+	push	af
+	and	%00001111
+	ld	h,0
+	ld	l,a
+	ld	bc,#0816
+	call	NUMBER1
+	inc	c
+	ld	hl,lomeno
+	call	T42_TEXT
+	ld	hl,2000
+	ld	d,(ix+13)
+	pop	af
+	push	bc
+	ld	b,4
+mnd1	rr	d
+	rr	a
+	djnz	mnd1
+	ld	e,a
+	ld	d,0
+	pop	bc
+	add	hl,de
+	call	NUMBER3
+
+
+
+
+;velikost karty
+	ld	a,(ix+#10)
+	and	%11000000
+
+	cp	%01000000
+	jr	z,CSD20
+CSD10
+;výpočet C_SIZE pro karty CSD v 2.0, funguje od 4 GB vyse
+CSD20	ld	h,(ix+#17)
+	ld	l,(ix+#18)
+
+	ld	b,3
+csd201	srl	h
+	rr	l
+	djnz	csd201
+	inc	hl
+
+	ld	bc,#0920
+	ld	a,h
+	or	a
+	jr	z,capacity_lt256
+
+	; HL >= 256. Rozlisime 3 a 4 cifry (SDXC muze mit i 1024/2048 GB).
+	ld	de,1000
+	or	a
+	sbc	hl,de
+	add	hl,de		; obnov HL bez zmeny hodnoty kapacity
+	jr	nc,capacity_4digits
+	call	NUMBER2		; 256..999 GB
+	jr	capacity_done
+
+capacity_lt256
+	ld	a,l
+	cp	10
+	jr	c,capacity_1digit
+	cp	100
+	jr	c,capacity_2digits
+	call	NUMBER2		; 100..255 GB
+	jr	capacity_done
+
+capacity_2digits
+	call	NUMBER1		; 10..99 GB
+	jr	capacity_done
+
+capacity_1digit
+	call	NUMBER0		; 1..9 GB
+	jr	capacity_done
+
+capacity_4digits
+	call	NUMBER3		; 1000..9999 GB
+
+capacity_done
+	inc	c
+	ld	hl,TEXT_GB
+	call	T42_TEXT
+
+
+
+;velikost cteci jednotky
+	ld	a,(ix+#15)
+	and	%00001111
+
+	ld	b,a
+	ld	hl,1
+vcj	add	hl,hl
+	djnz	vcj
+
+	ld	bc,#090D
+	call	NUMBER2
+/*davame pryc, info je nepostatne
+;permanent and temporal WP
+	bit	5,(ix+#1E)
+	ld	bc,#0A10
+	call	pertmp
+
+	bit	4,(ix+#1E)
+	ld	bc,#0A22
+	call	pertmp
+*/
+;CSD version
+	ld	a,(ix+#10)
+	and	%11000000
+	ld	hl,TEXT_20
+	jr	nz,csd1
+	ld	hl,TEXT_10
+csd1	ld	bc,#0624
+	call	T42_TEXT
+	jp	next
+/*
+pertmp	ld	hl,TEXT_YES
+	jr	nz,permyes
+	ld	hl,TEXT_NO
+	call	T42_TEXT
+	ld	hl,TEXT_NO
+permyes	ld	bc,#0A10
+	jp	T42_TEXT
+*/
+
+
+
+/*
+16gb	hl=#E	14	0000 0000 0000 1110	
+32	#1d	29	0000 0000 0001 1101	
+64	#3b	59	0000 0000 0011 1011	
+128	#76	118	0000 0000 0111 0110	
+256	#ec	236	0000 0000 1110 1100	
+512	#1de	478	0000 0001 1101 1110	
+1024	#3bc	956	0000 0011 1011 1100	
+2048	#778	1912	0000 0111 0111 1000	
+
+
+Kapacita	C_SIZE
+16 GB	0076B2
+32 GB	00EC4F
+64 GB	01D89F
+128 GB	03B13F
+256 GB	07627F
+512 GB	0EEFFF
+1 TB	1DDFFF
+2 TB	3BBFFF (typicky)
+Maximum	3FFFFF
+*/
+
+/*
+;LBA
+	ld	hl,TEXT_NO
+	bit	1,(ix+99)
+	jr	z,L1
+
+	ld	hl,TEXT_YES
+L1	ld	bc,#090D
+	call	T42_TEXT
+
+;DMA
+	ld	hl,TEXT_NO
+	bit	0,(ix+99)
+	jr	z,L2
+
+	ld	hl,TEXT_YES
+L2	ld	bc,#0925
+	call	T42_TEXT
+
+;CHS
+;Cylinders
+	ld	l,(ix+2)
+	ld	h,(ix+3)
+	ld	bc,#0A09
+	call	NUMBER4
+;Heads
+	ld	l,(ix+6)
+	ld	h,(ix+7)
+	ld	bc,#0A0f
+	call	NUMBER1
+;Sectors
+	ld	l,(ix+12)
+	ld	h,(ix+13)
+	ld	bc,#0A12
+	call	NUMBER1
+;pokud je General setting nastavena autoconfigurace, tak pri uspesnem detekovani zarizeni se do CHS ulozi zjistene udaje
+
+	ld	a,(@autoconfig)
+	or	a
+	jr	z,nemenCHSm2
+	ld	hl,VDT
+	ld	a,(ix+12)
+	ld	(hl),a
+	ld	a,(ix+6)
+	inc	hl
+	ld	(hl),a
+	ld	a,(ix+2)
+	inc	hl
+	ld	(hl),a
+	ld	a,(ix+3)
+	inc	hl
+	ld	(hl),a
+
+nemenCHSm2
+;capacity
+	ld	l,(ix+12)
+	ld	h,(ix+13)
+	ld	e,(ix+6)
+	ld	d,(ix+7)
+
+
+	push	ix		;rutina nasob pouziva IX
+	call	nasobeniHLDE.nasob
+	pop	ix
+	ld	e,(ix+2)
+	ld	d,(ix+3)
+
+	push	ix
+	call	nasobeniHLDE.nasob
+;vysledek je v IXHL
+
+	ld	l,h
+	ld	a,xl
+	ld	h,a
+	ld	e,hx
+
+;delime 256 vysledek EHL
+	ld	b,3
+trikrat1 
+	srl	e
+	rr	h
+	rr	l
+	djnz	trikrat1
+;delime tremi
+	ld	bc,#0A1F
+	call	NUMBER4
+
+	pop	ix
+
+;LBA 48Bits
+
+	inc	hx
+
+	ld	hl,TEXT_NO
+	bit	2,(ix-83)
+	jr	z,L3
+
+	ld	hl,TEXT_YES
+L3	ld	bc,#091C
+	call	T42_TEXT
+*/
+
+;28) (Busy's routine)
+HL2ASCII32
+;Prevod bin->dec bez znamienka
+; in: zzbin
+;out: zzdec
+
+	push	bc
+bindec	ld	hl,zzdec            ;; Vynulovanie buffera dec
+	ld	bc,lldec*#0100
+cls1	ld	(hl),c
+	inc	hl
+	djnz	cls1
+	ld	c,8*llbin           ;; Opakuj pre kazdy bit bin:
+bndc0	call	binx2               ;; vyrotovanie bitu z bin
+	ld	hl,eedec
+	ld	b,lldec             ;; a zarotovanie toho bitu do dec
+bndc2	dec	hl
+	ld	a,(hl)
+	adc	a,a
+	cp	#0a
+	jr	c,bndc3
+	sub	#0a
+bndc3	ld	(hl),a
+	ccf
+	djnz	bndc2
+	dec	c
+	jr	nz,bndc0
+
+	ld	hl,zzdec
+	ld	b,10		;; change it to ASCII
+prev_ascii32
+	ld	a,(hl)
+	or	a
+	jr	nz,asc32n
+	inc	hl
+	djnz	prev_ascii32
+
+	inc	b		;osetreni 0
+	dec	hl		;udelej misto pro zobrazeni "O"
+
+asc32n	ld	d,h
+	ld	e,l		;; DE=ASCII number start
+
+asc32_n	ld	a,#30
+	or	(hl)
+	ld	(hl),a
+	inc 	hl
+	djnz	asc32_n
+	pop	bc
+	ret
+
+binx2	ld	hl,zzbin            ;; Nasobenie bin dvomi
+	ld	b,llbin
+	xor	a
+bnxx2	rl	(hl)
+	inc	hl
+	djnz	bnxx2
+	ret
+
+zzbin	db	#ff,#ff,#ff,#ff		;vstup v bajtech
+eebin
+llbin	=	eebin-zzbin
+
+zzdec	db	0,0,0,0,0		;vystup v ASCII
+	db	6,5,5,3,5
+eedec
+lldec	=	eedec-zzdec
+	db	0			;zarážka pro tisk
+
+
+;hledani prvni sectoru pro data
+;prohledava se MBR, prvni partion, a hleda se v root dir. prvni datovy sector prvniho souboru
+;prvni sektor disku je MBR:
+;
+;na 1BEh zacinaji parametry prvni partition (10h kazda)
+;na 08h az 0Bh je cislo relativniho sektoru zacatku partition (nebo na 01h az 03h ve formatu hlava/sektor/cylindr)
+;
+;prvni sektor partition je BOOT a tam jsou tyto zajimave udaje:
+;0Bh, 0Ch   pocet bytu na sektor
+;0Eh, 0Fh   pocet sektoru pred prvni FAT
+;10h   pocet FAT
+;11h, 12h   pocet polozek v ROOTu
+;16h, 17h   pocet sektoru ve FAT
+;prvni datovy sektor je: zacatek_partition + sektoru_pred_FAT + sektoru_ve_FAT * pocet_FAT + polozek_v_ROOT * 20h / bytu_na_sektor
+
+
+/*
+1. Výpočet pro FAT16
+********************
+Kořenový adresář u FAT16 má pevnou velikost a leží hned za poslední FAT tabulkou.
+
+Vzorec (číslo sektoru od začátku disku/partice):
+
+RootSector{FAT16}=ReservedSecCnt+(NumFATs x FATSize16)
+
+Velikost root adresáře (v sektorech) se spočítá jako (RootEntCnt × 32 + BytsPerSec - 1) / BytsPerSec, ale jeho začátek je dán čistě součtem rezervovaných sektorů a obou FAT tabulek.
+
+2. Výpočet pro FAT32
+Kořenový adresář u FAT32 nemá pevnou pozici, je to běžný cluster. Nejprve musíme spočítat začátek datové oblasti (DataSecStart) a k němu přičíst offset daný počátečním clusterem (RootClus).
+
+Vzorec pro začátek datové oblasti (stejný jako FAT16):
+
+DataSecStart=ReservedSecCnt+(NumFATs x FATSize32)
+
+Vzorec pro počáteční sektor root adresáře (rootClus):
+
+RootSector{FAT32}= DataSecStart+((RootClus-2) x SecPerClus)
+
+(Odečítá se 2, protože clustery 0 a 1 v datové oblasti fyzicky neexistují – číslování datových clusterů začíná od 2).
+
+
+
+Kde najít rootClus a SecPerClus (pro FAT32)
+*******************************************
+Obě hodnoty jsou uloženy v boot sektoru (v datové struktuře BPB – BIOS Parameter Block):
+
+- SecPerClus (Sectors per Cluster): 1bajtová hodnota na offsetu 0x0D (decimálně 13) od začátku boot sektoru
+
+- rootClus (Root Directory Start Cluster): 4bajtová hodnota na offsetu 0x2C (decimálně 44) od začátku boot sektoru (obvykle 2)
+
+Výpočet počátečního sektoru Root Dir
+************************************
+Pro výpočty používáme tyto proměnné z boot sektoru:
+- ReservedSecCnt = Počet rezervovaných sektorů (offset 0x0E (dec 14), 2 bajty)
+- NumFATs = Počet FAT tabulek (offset 0x10 (dec 16), 1 bajt, obvykle 2)
+- FATSize16 = Počet sektorů jedné FAT u FAT16 (offset 0x16 (dec 22), 2 bajty)
+- FATSize32 = Počet sektorů jedné FAT u FAT32 (offset 0x24 (dec 36), 4 bajty)
+- RootEntCnt = Maximální počet položek v root adresáři u FAT16 (offset 0x11 (dec 17), 2 bajty, obvykle 512)
+- BytsPerSec = Počet bajtů na sektor (offset 0x0B (dec 11), 2 bajty, obvykle 512)
+- SecPerClus = Počet sektorů na cluster (offset 0x0D (dec 13), 1 bajt)
+- RootClus = Počáteční cluster root adresáře u FAT32 (offset 0x2C (dec 44), 4 bajty)
+
+*/
+
+/*
+1. k boot sektoru se umime dostat z MBR
+2. potřebné pro výpočet z boot sektoru, tyto hodnoty jsou relativni k zacatku partisny:
+---------------------------------------------------------------------------------------
+BPB_BytesPerSec		offset	11	delka 2
+BPB_SecPerClus		offset	13	delka 1
+BPB_RsvdSecCnt		offset	14	delka 2
+BPB_NumFATs		offset  16	delka 1
+
+FAT16:
+    BPB_RootEntCnt	offset	17	delka 2
+    BPB_FATSz16		offset	22	delka 2
+
+FAT32:
+    BPB_FATSz32		offset	36	delka 4
+    BPB_RootClus	offset	44	delka 4
+
+
+3. vypocet prvniho datoveho sektoru
+--------------------------------
+FAT16
+Spočti velikost Root Directory:
+
+RootDirSectors =
+(RootEntCnt × 32) / BytesPerSector
+
+Potom:
+FirstDataSectorRel =
+RsvdSecCnt +
+NumFATs × FATSz16 +
+RootDirSectors
+
+Absolutni LBA:
+FirstDataSectorAbs =
+PartitionStartLBA +
+FirstDataSectorRel
+
+
+FAT32
+Root Directory je součást datové oblasti.
+
+Proto:
+FirstDataSectorRel =
+RsvdSecCnt +
+NumFATs × FATSz32
+
+Absolutně:
+FirstDataSectorAbs =
+PartitionStartLBA +
+FirstDataSectorRel
+
+
+4. Načti Root Directory
+-----------------------
+FAT16
+
+Root Directory začíná na:
+RootDirLBA =
+PartitionStartLBA +
+RsvdSecCnt +
+NumFATs × FATSz16
+
+Je pevně daný.
+
+FAT32
+
+Root Directory začíná v clusteru:
+RootCluster = BPB_RootClus
+
+(obvykle 2)
+
+První sektor Root Directory:
+RootDirLBA =
+FirstDataSectorAbs +
+(RootCluster − 2) × SecPerClus
+
+
+
+5. Najdi soubor MBD / MBH
+-------------------------
+Projdi prvních 8 položek.
+
+Přečti:
+
+FAT16:
+DIR_FstClusLO
+
+FAT32:
+DIR_FstClusHI
+DIR_FstClusLO
+
+Vznikne:
+FirstCluster
+
+
+6. Převod clusteru na LBA
+-------------------------
+Platí pro FAT16 i FAT32 stejně:
+
+FirstFileLBA =
+FirstDataSectorAbs +
+(FirstCluster − 2) × SecPerClus
+
+Hotovo.
+
+
+Celý algoritmus
+---------------
+MBR
+ │
+ ├── PartitionStartLBA
+ │
+ ▼
+Boot Sector
+ │
+ ├── SecPerClus
+ ├── Reserved
+ ├── FATSize
+ ├── RootEntries (FAT16)
+ └── RootCluster (FAT32)
+ │
+ ▼
+FirstDataSectorAbs
+ │
+ ▼
+Root Directory
+ │
+ ▼
+Najdi MBD / MBH
+ │
+ ▼
+FirstCluster
+ │
+ ▼
+FirstFileLBA
+*/
+
+;tab_part	db	0,4,15,26	;sloupec tisku hodnot pro 4 partisny
+
+next
+	ld	hl,TEXTPARSEC
+	ld	bc,#0B02
+	call	T42_TEXT
+
+;novy kod- testuje vsechny 4 partisny
+;nejprve nacteme MBR
+
+		ld	a,4		;pocet partisen
+		ld	ix,BUFFER+446	;prvni partisna
+		ld	b,#0C	;radek (meni se pro kazdou partisnu)
+		ld	hl,VDT
+		ld	(VDT_pointer+1),hl
+
+test_partitions				;loop start
+		ld	c,2		;sloupec vzdy zaciname na 2 (posouva se spolu s tiskem)
+		push	af		;A= poradove cislo partisny (4-0)
+		push	ix		;zacatek udaje o partisne v MBR
+		push	bc		;radek+sloupec
+
+		ld	ix,BUFFER
+		ld	hl,0
+		ld	d,h
+		ld	e,h
+		call	SD_READ
+
+		pop	bc
+		pop	ix
+		push	ix
+		push	bc		
+
+;		ld	a,#C
+;		ld	(no_partition+1),a	;init print pozice
+
+;Nejdriv rozhodneme, zda LBA 0 neni primo FAT boot sektor (superfloppy).
+;Teprve kdyz neni, smime oblast od offsetu 446 interpretovat jako MBR tabulku.
+;Kontroly se delaji primo v BUFFERu, protoze IX v tomto miste ukazuje na MBR entry.
+
+		ld	a,(BUFFER+0)		;boot jump EB xx 90 nebo E9 xx xx
+		cp	#EB
+		jr	z,sf_check_bps
+		cp	#E9
+		jr	nz,not_superfloppy
+
+sf_check_bps
+		ld	hl,(BUFFER+11)	;BytesPerSector musi byt 512 = #0200
+		ld	de,#0200
+		or	a
+		sbc	hl,de
+		jr	nz,not_superfloppy
+
+		ld	a,(BUFFER+13)	;SecPerClus nesmi byt 0
+		or	a
+		jr	z,not_superfloppy
+
+		ld	hl,(BUFFER+14)	;ReservedSectorCount nesmi byt 0
+		ld	a,h
+		or	l
+		jr	z,not_superfloppy
+
+		ld	a,(BUFFER+16)	;NumFATs nesmi byt 0
+		or	a
+		jr	z,not_superfloppy
+
+		ld	hl,(BUFFER+510)	;boot signature 55 AA
+		ld	de,#AA55
+		or	a
+		sbc	hl,de
+		jr	nz,not_superfloppy
+
+;Rozliseni FAT16/FAT32 podle struktury BPB.
+		ld	hl,(BUFFER+17)	;RootEntCnt: FAT16 !=0, FAT32 =0
+		ld	a,h
+		or	l
+		jr	nz,sf_fat16
+
+		ld	hl,(BUFFER+22)	;FATSz16: FAT16 !=0, FAT32 =0
+		ld	a,h
+		or	l
+		jr	nz,sf_fat16
+
+		ld	hl,(BUFFER+36)	;u FAT32 musi byt FATSz32 nenulove
+		ld	de,(BUFFER+38)
+		ld	a,h
+		or	l
+		or	d
+		or	e
+		jr	z,not_superfloppy
+
+;Superfloppy FAT32
+sf_fat32
+		ld	hl,fat_type
+		set	0,(hl)
+		ld	a,4+8			;bit2=superfloppy, bit3=FAT32
+		jr	sf_type_ready
+
+;Superfloppy FAT16
+sf_fat16
+		ld	hl,fat_type
+		res	0,(hl)
+		ld	a,4			;bit2=superfloppy, bit3=0=FAT16
+
+sf_type_ready
+		ld	hl,(VDT_pointer+1)
+		ld	(hl),a
+
+;U superfloppy vypiseme nejen SFl, ale i skutecny FAT typ.
+;Bit 3 info bajtu: 0=FAT16, 1=FAT32.
+		ld	hl,TEXT_SFL16
+		bit	3,a
+		jr	z,sf_text_ready
+		ld	hl,TEXT_SFL32
+
+sf_text_ready
+		pop	bc			;obnov tiskovou pozici stejne jako part_text
+		call	T42_TEXT
+		dec	c			;TEXT_SFL16/32 je o 4 znaky delsi nez F16/F32
+		dec	c			;vrat tiskovou pozici pro dalsi sloupec
+		dec	c
+		dec	c
+
+;Superfloppy ma jen jeden filesystem. Upravime ulozeny citac smycky na 1,
+;aby se po jeho zpracovani netestovaly dalsi tri fiktivni MBR polozky.
+		pop	ix			;puvodni pointer na prvni MBR entry
+		pop	af			;puvodne A=4
+		ld	a,1
+		push	af
+		push	ix
+
+		ld	hl,0			;Boot sector superfloppy je absolutni LBA 0
+		ld	de,0
+		jp	MBRno
+
+not_superfloppy
+;LBA 0 neni FAT boot sektor, muzeme ho interpretovat jako MBR.
+;MBR je v bufferu
+		ld	a,(ix+4)		;test, zda je partisna vubec pritomna
+		or	a			;0= partisna neni obsazena
+		jp	z,no_partition
+
+;	set	0,(ix-1)	;nastav priznak FAT32
+	ld	hl,fat_type
+	set	0,(hl)
+	ld	b,9		;bity 0,3=1= FAT32
+	ld	hl,TEXT_FAT32	;test typu oddilu, bud FAT16/32/other
+;	ld	bc,#0c12
+	cp	#B		;pro typ oddilu FAT32
+	jp	z,part_text
+	cp	#C
+	jp	z,part_text
+
+	ld	hl,fat_type
+	res	0,(hl)
+;	res	0,(ix-1)	;nastav priznak FAT16
+	ld	hl,TEXT_FAT16
+	ld	b,1		;bit 1=1, bit 3=0= FAT16
+	cp	6		;pro typ oddilu FAT16
+	jp	z,part_text
+	cp	4
+	jp	z,part_text
+	cp	#E
+	jp	z,part_text	
+
+; Nepodporovane filesystemy se pokusime pojmenovat.
+; VDT info zustava 0, takze jsou stale pro EasySD nepouzitelne.
+	cp	#05			; Extended partition (CHS)
+	jp	z,part_extended
+	cp	#0F			; Extended partition (LBA)
+	jp	z,part_extended
+	cp	#07			; HPFS/NTFS/exFAT - rozlisime z boot sektoru
+	jp	z,part_type_07
+	cp	#83			; Linux native (ext2/ext3/ext4...)
+	jp	z,part_linux
+	cp	#EE			; GPT protective MBR
+	jp	z,part_gpt
+
+part_other
+	ld	hl,TEXT_OTHER
+	ld	b,0
+	jr	part_text
+
+part_linux
+	ld	hl,TEXT_LINUX
+	ld	b,0
+	jr	part_text
+
+part_extended
+	ld	hl,TEXT_EXTENDED
+	ld	b,0
+	jr	part_text
+
+part_gpt
+	ld	hl,TEXT_GPT
+	ld	b,0
+	jr	part_text
+
+; MBR type #07 je spolecny pro NTFS i exFAT.
+; Nacteme pouze boot sektor teto partition do BUFFER2, abychom neprepsali MBR v BUFFERu.
+; OEM ID je od offsetu +3: "NTFS    " nebo "EXFAT   ".
+part_type_07
+	push	ix
+	; SD_READ expects HL=upper 16 bits LBA, DE=lower 16 bits LBA
+	ld	e,(ix+8)
+	ld	d,(ix+9)
+	ld	l,(ix+10)
+	ld	h,(ix+11)
+	ld	ix,BUFFER2
+	call	SD_READ
+	pop	ix
+
+	ld	a,(BUFFER2+3)
+	cp	'N'
+	jr	nz,part_check_exfat
+	ld	a,(BUFFER2+4)
+	cp	'T'
+	jr	nz,part_check_exfat
+	ld	a,(BUFFER2+5)
+	cp	'F'
+	jr	nz,part_check_exfat
+	ld	a,(BUFFER2+6)
+	cp	'S'
+	jr	nz,part_check_exfat
+	ld	hl,TEXT_NTFS
+	ld	b,0
+	jr	part_text
+
+part_check_exfat
+	ld	a,(BUFFER2+3)
+	cp	'E'
+	jr	nz,part_other
+	ld	a,(BUFFER2+4)
+	cp	'X'
+	jr	nz,part_other
+	ld	a,(BUFFER2+5)
+	cp	'F'
+	jr	nz,part_other
+	ld	a,(BUFFER2+6)
+	cp	'A'
+	jr	nz,part_other
+	ld	a,(BUFFER2+7)
+	cp	'T'
+	jr	nz,part_other
+	ld	hl,TEXT_EXFAT
+	ld	b,0
+
+part_text
+	push	hl
+	ld	a,b
+	ld	hl,(VDT_pointer+1)
+	ld	(hl),a
+	pop	hl
+	pop	bc
+	call	T42_TEXT
+
+; Pokud je typ partition OTHER, zde zpracovani konci.
+; Info bajt VDT je 0, tedy partition je pro EasySD nepouzitelna.
+; Nesmime pokracovat do load_boot, jinak bychom cizí filesystem
+; (NTFS/exFAT/...) interpretovali jako FAT a poskodili i zarovnani VDT.
+	push	bc			;tiskova pozice pro ep2
+	ld	hl,(VDT_pointer+1)
+	ld	a,(hl)
+	or	a
+	jr	nz,partition_is_fat
+	ld	bc,32			;preskoc cely VDT zaznam OTHER
+	jp	ep3
+
+partition_is_fat
+	pop	bc			;FAT cesta ma BC dale mimo stack jako dosud
+
+					;ted hledame boot sektor pro dany oddil
+		ld	hl,(BUFFER2-2)
+		ld	de,#AA55		;znacka platneho zaznamu MBR
+		or	a
+		sbc	hl,de
+		jr	z,load_boot	;Z=tabulka MBR je platna
+
+;Neni FAT boot sektor ani platna MBR signatura.
+		jr	not_boot
+
+not_boot	pop	bc		;nejde ani o boot sektor, medium nema smysluplna data, konec
+		pop	ix
+		pop	af
+
+		ld	hl,(VDT_pointer+1)
+		ld	(hl),0		;info bajt=0
+
+		ld	hl,TEXT_NODATA
+		call	T42_TEXT
+		di
+		halt			;zatim
+;vytisknout, ze medium nema smylsuplna data a konec
+
+; pravděpodobně FAT Boot Sector
+/*stary test davame pryc
+		ld	hl,0		;jeste puvodni test MBR (puvodni EasyHdd)
+		ld	d,h
+		ld	e,h
+		ld	a,(ix+0)	;je oddil bootovaci? Pokud ano, vycti boot sektor,pokud ne, bude boot v sektoru 0
+		and	127
+		jr	nz,MBRno
+		ld	a,(ix+2)	;ale toto moc nechapu, pro se testuje CHS?
+		and	a
+		jr	z,MBRno
+*/
+
+
+
+load_boot	ld	l,(ix+8)
+		ld	h,(ix+9)	;nizsi
+		ld	e,(ix+10)
+		ld	d,(ix+11)	;vyssi
+
+
+MBRno		ld	(bootsec1+1),de	;pro MBRno, vyplnujeme vse 0
+		ld	(bootsec+1),hl	;schovame cislo bootsektoru pro budouci vypocet
+
+
+;mame boot sektor, jdeme ho nahrat a taky vypsat na obrazovku
+		ld	(zzbin),hl
+		ld	(zzbin+2),de
+		push	hl
+		push	de
+;		push	bc		;BC=tiskova pozice
+		call	HL2ASCII32
+;		pop	bc
+		inc	c		;posunuli jsme tiskovou pozici
+
+		ld	hl,zzdec+9
+		set	7,(hl)
+		ld	hl,zzdec
+;		ld	bc,#0B10
+
+mbs1		ld	a,(hl)
+		or	a
+		jr	nz,mbs2
+		inc	hl
+		inc	c
+		jr	mbs1
+
+mbs2		call	T42_TEXT	;vypis jeho cislo
+
+		pop	hl
+		pop	de		;HLDE=boot sektor
+
+		inc	c
+		push	bc		;posun tiskovou pozici
+
+		ld	ix,BUFFER
+		call	SD_READ		;nacti boot na adresu v IX (BUFFER)
+
+/*toto bylo na zacatku, kdyz jsem si to potreboval vizualizovat
+		ld	hl,BUFFER+11	;prenes hodnoty z boot sektoru potrebne pro vypocet
+		ld	de,BPB_BytesPerSec	
+		ld	bc,8
+		ldir
+		ld	hl,BUFFER+22
+		ld	(BPB_FATSz16),hl
+		ld	hl,BUFFER+36
+		ld	bc,4
+		push	bc
+		ldir
+		ld	hl,BUFFER+44
+		pop	bc
+		ldir
+
+;hodnoty z bootu
+BPB_BytesPerSec		dw	#5555	;offset	11	delka 2
+BPB_SecPerClus		db	#55	;offset	13	delka 1
+BPB_RsvdSecCnt		dw	#5555	;offset	14	delka 2
+BPB_NumFATs		db	#55	;offset 16	delka 1
+
+FAT16:
+BPB_RootEntCnt		dw	#5555	;offset	17	delka 2
+BPB_FATSz16		dw	#5555	;offset	22	delka 2
+
+FAT32:
+BPB_FATSz32		dw	#5555,#5555	;offset	36	delka 4
+BPB_RootClus		dw	#5555,#5555	;offset	44	delka 4
+*/
+
+
+;3. Výpočet prvního datového sektoru
+;pocet FAT x velikost FAT
+		ld	l,(ix+17)	;pouze pro FAT16. pocet polozek v Root diru, rovnou vypocitame pocet polozek
+		ld	h,(ix+18)	;(pocet polozek*32)/512=pocet sektoru
+		
+		ld	b,4		;vpocet si zjednodusime
+lb2_f16		srl	h
+		rr	l
+		djnz	lb2_f16
+		ld	(RootEntCnt+1),hl	;
+
+		ld	a,(ix+13)	;pocet sektoru na cluster
+		ld	(l1F+1),a
+
+		bit	0,(ix-1)	;jdeme pocitat, nejprve počet FATx delka FAT
+		ld	l,(ix+22)	;FAT16-pocet sektoru FAT
+		ld	h,(ix+23)
+		ld	de,0
+		jr	z,lb1_f16		
+		ld	l,(ix+36)	;FAT32- pocet sektoru FAT
+		ld	h,(ix+37)
+		ld	e,(ix+38)
+		ld	d,(ix+39)
+lb1_f16		ld	a,(ix+16)	;pocet FAT tabulek
+		call	MUL32x8		;nasobeni 32x8, vysledek je HL'DE'
+
+;pricteme k tomu pocet rezervovanych sektoru
+		ld	c,(ix+14)	;pocet rezervovanych sektoru
+		ld	b,(ix+15)
+		call	ADD32_16	;scitani 32+16, out HLDE
+		exx			;vysledek je v HLDE
+;mame FirstDataSectorRel
+					;jeste pricist sektory od bootu
+;pricteme k tomu PartitionStartLBA (boot sektor)
+bootsec		ld	hl,#5555	;nizsi
+bootsec1	ld	de,#5555	;vyssi
+		call	ADD32_32	;vysledek je v HLDE
+
+;uschovej absolutni zacatek datove oblasti. U FAT32 se RootDir muze nachazet
+;v jinem clusteru nez 2, proto se pozdeji MBD musi pocitat od FirstDataLBA,
+;nikoli od RootDirLBA.
+		ld	(FirstDataLBA),hl
+		ld	(FirstDataLBA+2),de
+
+; FAT16: HLDE uz obsahuje spravny RootDir LBA.
+; FAT32 pomocne vypocty nize by HLDE znicily.
+		bit     0,(ix-1)
+		jr      z,load_root_dir
+
+;udaje potrebne pro robustni prohledani FAT32 root directory
+		ld	a,(ix+13)
+		ld	(FAT32_SecPerClus),a
+		ld	l,(ix+44)
+		ld	h,(ix+45)
+		ld	(FAT32_CurCluster),hl
+		ld	l,(ix+46)
+		ld	h,(ix+47)
+		ld	(FAT32_CurCluster+2),hl
+
+;FirstFATLBA = PartitionStartLBA + ReservedSectors
+		ld	hl,(bootsec+1)
+		ld	de,(bootsec1+1)
+		ld	c,(ix+14)
+		ld	b,(ix+15)
+		add	hl,bc
+		jr	nc,.fatlba_no_carry
+		inc	de
+.fatlba_no_carry
+		ld	(FAT32_FirstFATLBA),hl
+		ld	(FAT32_FirstFATLBA+2),de
+
+;hotovo pro FAT16. HLDE= root dir pro FAT16
+
+
+		bit	0,(ix-1)
+		jr	z,load_root_dir
+
+		exx
+					;pro FAT32 musime pokracovat
+		ld	l,(ix+44)	;first cluster number of the root directory
+		ld	h,(ix+45)
+		ld	e,(ix+46)
+		ld	d,(ix+47)
+;odecteme 2, protoze pokud je cluster ve FAT32=2, pak zacatek root dir je hned za FAT2, jako u FAT16
+		ld	a,2
+		call	SUB32_8		
+		ld	a,(ix+13)
+		call	MUL32x8
+		call	ADD32_32
+					;HLDE=root dir pro FAT32
+
+load_root_dir	
+/*toto je spatne, tohle cislo nechceme tisknout, budeme tisknout soubor do tretiho sloupce
+		pop	bc		;tiskova pozice, nechame ji venku, nic ji neposkozuje
+		push	hl
+		push	de		;dame to bokem
+
+		ld	(zzbin),hl	;nejprve tisk
+		ld	(zzbin+2),de
+
+		call	HL2ASCII32
+		ld	hl,zzdec+9
+		set	7,(hl)
+		ld	hl,zzdec
+;		ld	bc,#0B1B
+;		pop	bc
+lrd1		ld	a,(hl)
+		or	a
+		jr	nz,lrd2
+		inc	hl
+		inc	c
+		jr	lrd1
+
+lrd2		call	T42_TEXT	;vypis jeho cislo
+					;... a load a vyhledani souboru .MBD/.MBH
+		inc	c
+
+		pop	hl
+		pop	de		;HLDE=Root Dir FAT32/FAT16
+;uschovame ho, bude ještě potřeba, je to start DIRs sektoru pro FAT16, nebo start datovch sektoru pro FAT32
+
+		push	hl		
+		push	de
+
+		push	bc		;tiskova pozice
+
+*/
+		pop	bc
+		ex	de,hl
+		push	hl
+		push	de
+		push	bc		;BC=tiskova pozice
+
+;	ld	ix,BUFFER
+;;;	ld	a,%00000000	;master
+
+;FAT32: neber prvni MBD podle poradi directory entries.
+;Projdi cely root cluster chain a vyber MBD/MBH s NEJNIZSIM start clusterem,
+;tj. fyzicky prvni image na karte.
+	ld	a,(fat_type)
+	bit	0,a
+	jr	z,.scan_fat16_old
+
+	call	FAT32_FIND_LOWEST_MBD
+	ld	hl,(VDT_pointer+1)
+	or	a
+	jp	nz,platne
+	jr	mbd_not_found
+
+.scan_fat16_old
+	call	SD_READ
+
+	ld	b,8		;; FAT16 zustava beze zmeny: prvnich 8 polozek
+	ld	de,32		;; kazda polozka ma 32 bytes
+	ld	hl,(VDT_pointer+1)
+nextfile
+	ld	a,(ix+08h)
+	cp	"M"
+	jr	nz, neplatne
+	ld	a,(ix+09h)
+	cp	"B"
+	jr	nz, neplatne
+	ld	a,(ix+0ah)
+	cp	"H"
+	jp	z, platne
+	cp	"D"
+	jp	z, platne
+neplatne
+	add	ix,de
+	djnz	nextfile
+
+mbd_not_found
+	res	1,(hl)		;nastav priznak, ze jde o nepouzitelny oddil, nema MBD soubor
+
+	ld	hl,TEXT_NODATA
+	pop	bc		;tiskova pozice
+	call	T42_TEXT	;tisk "No Data"= soubor MBD/MBH neni pritomen
+
+	; Cely radek teto partition obarvime cervene.
+	; B obsahuje cislo aktualniho textoveho radku.
+	; Atributova oblast ZX zacina na #5800, polozky menu od sloupce 1.
+	push	bc
+	ld	a,b
+	ld	hl,#5801
+	ld	de,32
+	ld	b,a
+no_data_red_seek
+	add	hl,de
+	djnz	no_data_red_seek
+	ld	b,cursor_len	; stejne dlouhy radek jako kurzor (29 atributu)
+	ld	a,66		; bright red ink, black paper
+no_data_red_fill
+	ld	(hl),a
+	inc	hl
+	djnz	no_data_red_fill
+	pop	bc
+
+	; MBD/MBH se nenasel. Na zasobniku jsou jeste dve 16bitove
+	; poloviny ulozeneho RootDir LBA. Pres l1F uz nesmime pokracovat,
+	; protoze l1F ocekava na vrcholu zasobniku znovu BC a pocita LBA
+	; neexistujiciho souboru. Uklidime RootDir a vratime BC tak, jak ho
+	; ocekava end_partition/ep2.
+	pop	de		;zahod ulozene DE RootDir LBA
+	pop	hl		;zahod ulozene HL RootDir LBA
+	push	bc		;ep2 bude znovu delat POP BC
+
+	; No Data je stale jeden kompletni 32B VDT zaznam.
+	; Musime posunout VDT_pointer na nasledujici partition, jinak
+	; se dalsi platna partition zapise do stejneho VDT zaznamu.
+	ld	hl,(VDT_pointer+1)
+	ld	bc,32
+	jp	ep3
+
+
+;------------------------------------------------------------------------------
+; FAT32_FIND_LOWEST_MBD
+; Projde CELÝ ALOKOVANY FAT32 root directory cluster chain a z nalezenych MBD/MBH
+; vybere soubor s nejmensim start clusterem = fyzicky prvni MBD.
+;
+; OUT:
+;   A=0  ... MBD/MBH nenalezen
+;   A=1  ... nalezen, IX -> FAT32_BestEntry (32B kopie directory entry)
+;
+; Pouziva BUFFER pro directory sektor, BUFFER2 pro sektor FAT.
+;------------------------------------------------------------------------------
+FAT32_FIND_LOWEST_MBD
+	xor	a
+	ld	(FAT32_Found),a
+	ld	hl,#FFFF
+	ld	(FAT32_BestCluster),hl
+	ld	(FAT32_BestCluster+2),hl
+
+.f32_cluster_loop
+	; DirLBA = FirstDataLBA + (CurCluster-2) * SecPerClus
+	; Pouzij existujici 32bit math rutiny; pouze platne Z80 instrukce.
+	ld	hl,(FAT32_CurCluster)
+	ld	de,(FAT32_CurCluster+2)
+	ld	a,2
+	call	SUB32_8
+	ld	a,(FAT32_SecPerClus)
+	call	MUL32x8
+	exx
+	ld	hl,(FirstDataLBA)
+	ld	de,(FirstDataLBA+2)
+	call	ADD32_32
+
+	ld	(FAT32_DirLBA),hl
+	ld	(FAT32_DirLBA+2),de
+
+	ld	a,(FAT32_SecPerClus)
+	ld	(FAT32_SectorsLeft),a
+
+.f32_sector_loop
+	ld	de,(FAT32_DirLBA)
+	ld	hl,(FAT32_DirLBA+2)
+	ld	ix,BUFFER
+	call	SD_READ
+
+	ld	b,16			; cely 512B sektor = 16 x 32B entries
+	ld	ix,BUFFER
+
+.f32_entry_loop
+	ld	a,(ix+0)
+	or	a
+	jp	z,.f32_next_entry	; 00 = volna/nepouzita polozka; projdeme cely alokovany root chain
+	cp	#E5
+	jp	z,.f32_next_entry	; deleted
+
+	ld	a,(ix+11)
+	cp	#0F
+	jr	z,.f32_next_entry	; LFN
+	bit	3,a
+	jr	nz,.f32_next_entry	; volume label
+	bit	4,a
+	jr	nz,.f32_next_entry	; directory
+
+	ld	a,(ix+8)
+	cp	"M"
+	jr	nz,.f32_next_entry
+	ld	a,(ix+9)
+	cp	"B"
+	jr	nz,.f32_next_entry
+	ld	a,(ix+10)
+	cp	"D"
+	jr	z,.f32_candidate
+	cp	"H"
+	jr	nz,.f32_next_entry
+
+.f32_candidate
+	; FAT32 start cluster: HI word @20, LO word @26
+	ld	l,(ix+26)
+	ld	h,(ix+27)
+	ld	e,(ix+20)
+	ld	a,(ix+21)
+	and	#0F
+	ld	d,a
+
+	; cluster 0/1 neni platny datovy cluster
+	ld	a,d
+	or	e
+	or	h
+	jr	nz,.f32_compare
+	ld	a,l
+	cp	2
+	jr	c,.f32_next_entry
+
+.f32_compare
+	; unsigned 32bit: DEHL < BestCluster ?
+	; candidate-Best, carry z horniho slova znamena candidate < Best.
+	push	de
+	push	hl
+	ld	bc,(FAT32_BestCluster)
+	or	a
+	sbc	hl,bc
+	ex	de,hl
+	ld	bc,(FAT32_BestCluster+2)
+	sbc	hl,bc
+	pop	hl
+	pop	de
+	jr	nc,.f32_next_entry
+
+.f32_new_best
+	ld	(FAT32_BestCluster),hl
+	ld	(FAT32_BestCluster+2),de
+
+	push	bc			; zachovej B = pocitadlo directory entries
+	push	ix
+	pop	hl
+	ld	de,FAT32_BestEntry
+	ld	bc,32
+	ldir
+	pop	bc
+	ld	a,1
+	ld	(FAT32_Found),a
+
+.f32_next_entry
+	ld	de,32
+	add	ix,de
+	dec	b
+	jp	nz,.f32_entry_loop
+
+	; dalsi sektor stejneho root clusteru
+	ld	hl,FAT32_DirLBA
+	inc	(hl)
+	jr	nz,.f32_lba_inc_done
+	inc	hl
+	inc	(hl)
+	jr	nz,.f32_lba_inc_done
+	inc	hl
+	inc	(hl)
+	jr	nz,.f32_lba_inc_done
+	inc	hl
+	inc	(hl)
+.f32_lba_inc_done
+
+	ld	a,(FAT32_SectorsLeft)
+	dec	a
+	ld	(FAT32_SectorsLeft),a
+	jp	nz,.f32_sector_loop
+
+	; Nacti FAT entry pro aktualni root cluster.
+	; FAT32 ma 128 zaznamu/sektor => FAT sector = cluster >> 7.
+	; CurCluster je little-endian 32bit; FAT32 pouziva jen 28 bitu.
+	ld	a,(FAT32_CurCluster)
+	ld	h,a
+	ld	a,(FAT32_CurCluster+1)
+	ld	l,a
+	ld	a,(FAT32_CurCluster+2)
+	ld	e,a
+	ld	d,0
+	add	hl,hl
+	rl	e
+	rl	d
+	ld	h,l
+	ld	l,e
+	ld	e,d
+	ld	d,0
+
+	; DEHL = cluster>>7; pricteme absolutni LBA prvni FAT.
+	ld	bc,(FAT32_FirstFATLBA)
+	add	hl,bc
+	ex	de,hl
+	ld	bc,(FAT32_FirstFATLBA+2)
+	adc	hl,bc
+	ex	de,hl
+
+	ex	de,hl			; SD_READ: HL=upper, DE=lower
+	ld	ix,BUFFER2
+	call	SD_READ
+
+	; offset v FAT sektoru = (cluster & 127)*4
+	ld	a,(FAT32_CurCluster)
+	and	#7F
+	add	a,a
+	add	a,a
+	ld	l,a
+	ld	h,0
+	ld	de,BUFFER2
+	add	hl,de
+
+	ld	e,(hl)
+	inc	hl
+	ld	d,(hl)
+	inc	hl
+	ld	c,(hl)
+	inc	hl
+	ld	a,(hl)
+	and	#0F
+	ld	b,a			; BCDE = next cluster (B highest)
+
+	; EOC >= 0FFFFFF8, bad cluster 0FFFFFF7 take also as end.
+	ld	a,b
+	cp	#0F
+	jr	nz,.f32_store_next
+	ld	a,c
+	cp	#FF
+	jr	nz,.f32_store_next
+	ld	a,d
+	cp	#FF
+	jr	nz,.f32_store_next
+	ld	a,e
+	cp	#F7
+	jr	nc,.f32_directory_end
+
+.f32_store_next
+	; 0/1 = invalid chain => konec
+	ld	a,b
+	or	c
+	or	d
+	jr	nz,.f32_next_valid
+	ld	a,e
+	cp	2
+	jr	c,.f32_directory_end
+.f32_next_valid
+
+	ld	(FAT32_CurCluster),de
+	ld	h,b
+	ld	l,c
+	ld	(FAT32_CurCluster+2),hl
+	jp	.f32_cluster_loop
+
+.f32_directory_end
+	ld	a,(FAT32_Found)
+	or	a
+	ret	z
+	ld	ix,FAT32_BestEntry
+	ld	a,1
+	ret
+
+;Skutečná fyzická pozice souboru na disku se spočítá tak, že se od čísla clusteru odečte 2, to se vynásobí počtem sektorů na cluster a přičte se začátek datové oblasti. Stejne pro FAT16 i FAT32.
+
+platne	set	1,(hl)
+	pop	bc		;tiskova pozice
+	push	ix
+	pop	hl
+	set	7,(ix+10)
+	call	T42_TEXT	;vypis jeho nazev
+	push	bc		;tiskova pozice
+	ld	l,(ix+26)	;;cluster na kterem zacina soubor
+	ld	h,(ix+27)
+	ld	e,(ix+20)
+	ld	d,(ix+21)	;hlde=cluster of a file
+	ld	a,2		;nutno odecist 2
+	call	SUB32_8
+
+l1F	ld	a,#55		;pocet sektoru na cluster
+	call	MUL32x8		;vysledek v HLDE
+	exx				;offset souboru presun do alternativnich registru
+	pop	bc		;tiskova pozice
+	pop	hl
+	pop	de		;HLDE=Root Dir FAT32/FAT16
+	push	bc		;tiskova pozice
+
+	; V tomto miste uz IX ukazuje na adresarovou polozku MBD, proto nelze
+	; testovat FAT typ pres (ix+0). Pouzij globalni priznak fat_type.
+	ld	a,(fat_type)
+	bit	0,a
+	jr	z,l1F_fat16
+
+	; FAT32: zakladem pro prevod clusteru souboru je FirstDataLBA,
+	; nikoli RootDirLBA (RootClus nemusi byt 2).
+	ld	hl,(FirstDataLBA)
+	ld	de,(FirstDataLBA+2)
+	call	ADD32_32
+	jr	end_partition
+
+				;FAT16: k RootDirLBA nejprve pricteme offset souboru
+l1F_fat16	call	ADD32_32
+
+				;pak jeste velikost pevneho Root Directory
+	exx
+
+RootEntCnt	ld	hl,#5555
+		call	ADD32_32
+
+				;v HLDE je prvni sektor image MBD/MBH, i pro FAT32:)
+
+/*
+osetrit:
+- DONE neni MBR- pak bude svitit jen jeden radek ve vyisu, a bude snaha datekovat FAT16/FAT32/other
+- DONE partisna neni FAT16/FAT32- nech sviti napis "oth" a skoci se na detekci dalsi partisny
+- DONE partisna je FAT16/FAT32, ale soubor se nenasel- pak necht sviti cervene No File.
+- nyni se automaticky vezme prvni partisna, do VDT, ale chceme tam dat user defined, tzn, pridat kurzor!!!
+
+Nasledne tyto 3 stavy se musi vepsat do VDT tabulky
+
+
+nova specifikace VDT:
+- disk muze mit max 4 primarni partisny. Udaje o nich jsou v MBR v nultem sektoru disku.
+- budou dve VDT tabulky pro master a slave= 5x32= 256 bajtu= celkova delka VDT tabulky
+
+- struktura 1 zaznamu (z osmi) ve VDT tabulce:
+;offset	pocet	popis
+**********************
+;0	1	info bajt
+;1	4	first LBA sector of first MBD/MBH file on disk
+;2	1	reserved
+;3	26	user defined text
+
+
+info bajt o oddilu rika:
+;bit 0		0= oddil FAT16/32 jakozto MBR neexistuje
+		1= oddil FAT16/32 jakozto MBR existuje
+;bit 1		1= pouzitelny oddil pro speccy (tj. obsahuje jako prvni MBD soubor, lze ho pouzit)
+		0= nepouzitelny oddil pro speccy (tj. neobsahuje MBD soubor)
+;bit 2		0= pokud je bit 1 nulovy, pak 0=zadna smysluplna data nejsou na disku pritomna, 1=jde o disk FAT16/FAT32 bez MBR (bit 3 je pak platny). Pokud je bit 1 nenulovy, pak 0= oddil se nepouziva, 1= oddil se pouziva*
+;bit 3		0= FAT16, 1=FAT32 (volitelne)
+;bity 4-7	rezervovane
+;*v BSDOSu muze soucasne fungovat jen jeden oddil
+
+*/
+
+end_partition
+;		cp	4
+;		jr	nz,ep2			;NZ= nejdo o prvni partisnu
+
+/*
+;zatim budou data ve vsech partisnach
+;pokud je General setting nastavena autoconfigurace, tak ulozi vypocteny prvni datovy sector
+;		ld	c,a
+		ld	a,(@autoconfig)
+		or	a
+;		ld	a,c
+;		jr	z,nemenfirstdatasectorm1
+		jr	z,ep2
+;davame to pryc, koncepce autoconfigu bude jina, bude auto, nebo manualne
+*/
+
+		ld	b,h
+		ld	c,l		;dame HL do BC, abychomm mohli vyplnovat VDT tabulku
+
+		ld	hl,(VDT_pointer+1)	;zjistime, zda se nasel MBD soubor
+		bit	1,(hl)
+		jr	z,ep2			;Z=neobashuje MBD soubor
+
+		ld	h,b
+		ld	l,c
+
+		pop	bc		;BC=tiskova pozice
+						;obsahuje, tak vypiseme na obrazovku jeho cislo
+		push	hl
+		push	de			;BCDE= prvni sektor MBD souboru
+
+		ld	(zzbin),hl	;nejprve tisk
+		ld	(zzbin+2),de
+
+		call	HL2ASCII32
+		ld	hl,zzdec+9
+		set	7,(hl)
+		ld	hl,zzdec
+;		ld	bc,#0B1B
+;		pop	bc
+lrd1		ld	a,(hl)
+		or	a
+		jr	nz,lrd2
+		inc	hl
+		inc	c
+		jr	lrd1
+
+
+lrd2		inc	c		;jeste posun, aby cislo nebylo nalepeno na predchozi text, pokud bude cislo 10 mist
+		call	T42_TEXT	;vypis jeho cislo
+
+		pop	de
+		pop	hl			;HLDE=prvni sektor MBD souboru
+
+		push	bc		;schovej tiskovou pozici
+		ld	c,l
+		ld	b,h		
+
+VDT_pointer	ld	hl,#5555
+		inc	hl
+		ld	(hl),c
+		inc	hl
+		ld	(hl),b
+		inc	hl
+		ld	(hl),e
+		inc	hl
+		ld	(hl),d
+		ld	bc,28
+ep3		add	hl,bc
+		ld	(VDT_pointer+1),hl	;datove sektory jsou vepsany do tabulky, tabulka je pripravena na dalsi zapis
+
+;		ld	de,VDT+5
+;		ex	de,hl
+;		ld	(hl),e
+;		inc	hl
+;		ld	(hl),d
+
+ep2		pop	bc			;BC=tiskova pozice
+		pop	ix
+		pop	af
+
+		inc	b			;zvys poradovy radek
+		ld	de,16
+		add	ix,de			;move pointer to another partition
+		dec	a
+ep1		jp	nz,test_partitions		;moc daleko, musim vymyslet jinak
+
+		jr	nemenfirstdatasectorm1
+
+no_partition	;ld	b,#C			;nulovy zaznam v MBR
+		;ld	c,1
+		pop	bc			;tiskova pozice
+		push	bc			;tiskova pozice- znovu ji ulozime
+		ld	hl,TEXT_PART_EMPTY
+		call	T42_TEXT
+		xor	a
+		ld	hl,(VDT_pointer+1)
+		ld	(hl),a		;nastav bity ve VDT k teto partisne na 0
+		ld	bc,32			; VDT zaznam ma 32 bajtu; HL je zde na offsetu 0
+		jr	ep3
+
+;stary kod-testuje jen prvni partisnu
+nemenfirstdatasectorm1
+/*
+;nacteni MBR
+	ld	ix,BUFFER
+;;;	ld	a,%00000000	;master
+	ld	hl,0
+	ld	de,0		;HLDE = LBA 0
+	call	SD_READ
+; dodelat osetreni erroru
+	inc	hx
+	inc	hx		;+512
+
+	ld	a,(ix-64+2)	;text typu 1. oddilu (FAT16/FAT32/jiny)
+	ld	hl,TEXT_FAT32
+	ld	bc,#0c12
+	ld	e,0
+	cp	#B		;pro typ oddilu FAT32
+	jr	z,part_text
+	cp	#C
+	jr	z,part_text
+
+	inc	e
+	ld	hl,TEXT_FAT16
+	cp	6		;pro typ oddilu FAT16
+	jr	z,part_text
+	cp	4
+	jr	z,part_text
+	cp	#E
+	jr	z,part_text	
+
+	ld	hl,TEXT_OTHER
+
+part_text
+	ld	a,e
+	ld	(part_type+1),a
+	call	T42_TEXT
+
+;; novy kod je-li vubec MBR pritomen
+	ld	de,0		;;FAT boot sector zacina na LBA0, pokud neni MBR
+	ld	a,(ix-66)	;;1BE
+	and	127		;;80h or 00h MRB first partion table does exist
+	jr	nz, MBRno
+	ld	a,(ix-64)	;;1C0
+	and	a		;;pokud existuje patition, tak sector je nenulova
+	jr	z, MBRno
+MBRyes 
+;; end of novy kod je-li vubec MBR pritomen
+	ld	e,(ix-58)	;info o prvni partition zacina na #1BE
+	ld	d,(ix-57)
+MBRno	ex	de,hl		;v hl je cislo sectoru kde zacina boot prvni par.
+	ld	(bootsec+1),hl	;schovame cislo bootsectoru pro vypocet
+	ld	bc,#0B10
+	push	hl
+	call	NUMBER3
+;nacteni BOOT sectoru prvni partition
+	pop	hl
+	ld	de,0		;HLDE = 32bit LBA, zde hornich 16 bitu = 0
+	ld	ix,BUFFER
+	call	SD_READ
+; dodelat osetreni erroru
+; vypocet datove oblasti prvniho souboru
+
+	ld	hl,TEXTDATASEC
+	ld	bc,#0B15
+	call	T42_TEXT
+
+bootsec	ld	hl,0
+	ld	e,(ix+14)	;pricteme sectory pred FAT
+	ld	d,(ix+15)
+	add	hl,de
+	push	hl
+	push	ix
+	ld	e,(ix+16)	;pocet FAT
+	ld	d,0
+part_type
+	ld	a,#55		;either 0 (FAT32) or 1 (FAT16)
+	or	a
+	jr	z,part_32
+	ld	l,(ix+22)	;pocet sektoru FATky ve FAT 16
+	ld	h,(ix+23)
+	jr	part_c
+part_32	ld	l,(ix+36)	;pocet sekotru FATky ve FAT 32	
+	ld	h,(ix+37)
+part_c	call	nasobeniHLDE.nasob	;vysledek v IXHL
+	pop	ix
+	pop	de
+	add	hl,de		;pricteme jen spodnich 16 bitu
+	;; v HL je LBA Root Directory sectoru
+	ld	e,(ix+17)	;pocet polozek v ROOTu
+	ld	d,(ix+18)
+;; novy kod pro vypocet prvniho datoveho sektoru s ohleden na souboru v rootu
+	ld	c,(ix+0dh)	;;pocet sectoru v clusteru, obvykle 64 (32KB cluster)
+	ld	b,0
+	push	de
+	push	hl
+	push	bc
+	;;nacteni Root Directory sectoru
+	ld	de,0		;HLDE = 32bit LBA, zde hornich 16 bitu = 0
+	ld	ix,BUFFER
+	call	SD_READ
+
+	ld	b,8		;;prohledam prvnich 8 polozek, jestli zde neni mbd nebo mbh soubor, hledam jen priponu
+	ld	de,32		;; kazda polozka ma 32 bytes
+nextfile
+	ld	a,(ix+08h)
+	cp	"M"
+	jr	nz, neplatne
+	ld	a,(ix+09h)
+	cp	"B"
+	jr	nz, neplatne
+	ld	a,(ix+0ah)
+	cp	"H"
+	jp	z, platne
+	cp	"D"
+	jp	z, platne
+neplatne
+	add	ix,de
+	djnz	nextfile
+	ld	e,2		;;pokud nenajdu pouziji cluster 0
+	jr	l1F
+
+
+platne	ld	e,(ix+1ah)	;;cluster na kterem zacina soubor
+l1F	ld	d,0
+	dec	de		;;The clusters are numbered starting at 2, not 0! So the above calculation has to have 2 added to it to get the cluster number of a given allocation unit...and a cluster number is converted to an allocation unit number by subtracting 2...!
+	dec	de
+	pop	hl		;;pocet sectoru v clusteru, obvykle 64 (32KB cluster)
+	call	nasobeniHLDE.nasob	;; vysledek v IXHL
+	ex	de,hl
+	pop	hl		;; v HL je LBA Root Directory sectoru
+	add	hl,de
+	pop	de
+;; konec kodu pro vypocet prvniho datoveho sektoru s ohleden na souboru v rootu 
+	; vydelime 16; predpokladame velikost sec. 512 a 32bytu v root polozce
+	ld	b,4
+ctyrikrat1 
+	srl	d
+	rr	e
+	djnz	ctyrikrat1
+	add	hl,de
+	push	hl
+	ld	bc,#0B23
+	call	NUMBER4
+	pop	hl
+;pokud je General setting nastavena autoconfigurace, tak ulozi vypocteny prvni datovy sector
+
+	ld	a,(@autoconfig)
+	or	a
+	jr	z,nemenfirstdatasectorm1
+	ld	de,VDT+5
+	ex	de,hl
+	ld	(hl),e
+	inc	hl
+	ld	(hl),d
+
+nemenfirstdatasectorm1
+;/*
+;LBA Total sectors
+;
+;	ld	hl,(BUFFER+200)
+;	ld	(D1LBA),hl
+;	ld	bc,#0A24
+;	call	NUMBER4
+;
+;	ld	hl,(BUFFER+202)
+;	ld	(D1LBA+2),hl
+;	ld	bc,#0A1E
+;	call	NUMBER4
+;
+;	ld	hl,(BUFFER+204)
+;	ld	(D1LBA+4),hl
+;	ld	bc,#0A18
+;	call	NUMBER4
+;
+;
+;	ld	hl,TEXT16
+;LER1
+;	ld	bc,#050F
+;	call	T42_TEXT
+;
+;	pop	af
+;	ld	h,0
+;	ld	l,a
+;	ld	bc,#0524
+;	call	NUMBER4
+;*/
+;
+;SLAVE IDENTIFY
+Slaveinentify
+;/* ;vyruseni SLAVE
+;
+;	ld	hl,TEXT8
+;	ld	bc,#0D02
+;	call	T42_TEXT
+;
+;	ld	ix,BUFFER
+;	ld	a,%00010000
+;	call	IDENTIFY
+;
+;	ld	hl,TEXT16
+;	push	af
+;	jr	z,TISKSTATUS2
+;	ld	hl,TEXT11
+;	cp	255
+;	jp	z,TISKSTATUS2
+;	ld	hl,TEXT14
+;	cp	6
+;	jp	z,TISKSTATUS2
+;	ld	hl,TEXT13
+;	cp	3
+;	jp	z,TISKSTATUS2
+;	ld	hl,TEXT12
+;	dec	a
+;	jp	z,TISKSTATUS2
+;	ld	hl,TEXT15
+;
+;TISKSTATUS2
+;	ld	bc,#0D0F
+;	call	T42_TEXT
+;
+;	pop	af
+;	jr	z,SLAVEINFO
+;
+;	ld	h,0
+;	ld	l,a
+;	ld	bc,#0D26
+;	call	NUMBER2
+;
+;;pokud je General setting nastavena autoconfigurace, tak pri neuspesnem detekovani zarizeni se do CHS ulozi nuly a HDD pak nasledne nebude nainstalovan
+;	ld	a,(@autoconfig)
+;	or	a
+;	jr	z,nemenCHSs1
+;	xor	a
+;	ld	b,4
+;	ld	hl,VDT+(VDTLEN/2)
+;nulydoCHSs
+;	ld	(hl),a
+;	inc	hl
+;	djnz	nulydoCHSs
+;nemenCHSs1
+;	jp	Endinentify
+;
+;SLAVEINFO
+;	ld	hl,TEXT4
+;	ld	bc,#0E02
+;	call	T42_TEXT
+;	ld	hl,TEXT5
+;	ld	bc,#0F02
+;	call	T42_TEXT
+;	ld	hl,TEXT6
+;	ld	bc,#1002
+;	call	T42_TEXT
+;	ld	hl,TEXT7
+;	ld	bc,#1102
+;	call	T42_TEXT
+;	ld	hl,TEXT101
+;	ld	bc,#1202
+;	call	T42_TEXT
+;	ld	hl,TEXT102
+;	ld	bc,#1215
+;	call	T42_TEXT
+;
+;model
+;	ld	hl,BUFFER+54
+;	ld	b,40
+;	call	PROHOD
+;	set	7,(ix+85)
+;
+;	ld	bc,#0E09
+;	call	T42_TEXT
+;
+;firmware
+;	ld	hl,BUFFER+46
+;	ld	b,8
+;	call	PROHOD
+;	set	7,(ix+53)
+;
+;	ld	bc,#0F0C
+;	call	T42_TEXT
+;
+;serial number
+;
+;	ld	hl,BUFFER+20
+;	ld	b,20
+;	call	PROHOD
+;	set	7,(ix+39)
+;
+;	ld	bc,#1011
+;	call	T42_TEXT
+;LBA
+;	ld	hl,TEXT_NO
+;	bit	1,(ix+99)
+;	jr	z,L11
+;
+;	ld	hl,TEXT_YES
+;L11	ld	bc,#110D
+;	call	T42_TEXT
+;
+;DMA
+;	ld	hl,TEXT_NO
+;	bit	0,(ix+99)
+;	jr	z,L12
+;
+;	ld	hl,TEXT_YES
+;L12	ld	bc,#1125
+;	call	T42_TEXT
+;
+;;CHS
+;	ld	l,(ix+2)
+;	ld	h,(ix+3)
+;	ld	bc,#1209
+;	call	NUMBER4
+;
+;	ld	l,(ix+6)
+;	ld	h,(ix+7)
+;	ld	bc,#120f
+;	call	NUMBER1
+;
+;	ld	l,(ix+12)
+;	ld	h,(ix+13)
+;	ld	bc,#1212
+;	call	NUMBER1
+;;pokud je General setting nastavena autoconfigurace, tak pri uspesnem detekovani zarizeni se do CHS ulozi zjistene udaje
+;
+;	ld	a,(@autoconfig)
+;	or	a
+;	jr	z,nemenCHSs2
+;	ld	hl,VDT+(VDTLEN/2)
+;	ld	a,(ix+12)
+;	ld	(hl),a
+;	ld	a,(ix+6)
+;	inc	hl
+;	ld	(hl),a
+;	ld	a,(ix+2)
+;	inc	hl
+;	ld	(hl),a
+;	ld	a,(ix+3)
+;	inc	hl
+;	ld	(hl),a
+;
+;nemenCHSs2
+;
+;capacity
+;	ld	l,(ix+12)
+;	ld	h,(ix+13)
+;	ld	e,(ix+6)
+;	ld	d,(ix+7)
+;
+;	push	ix		;rutina nasob pouziva IX
+;	call	nasobeniHLDE.nasob
+;	pop	ix
+;	ld	e,(ix+2)
+;	ld	d,(ix+3)
+;	push	ix
+;	call	nasobeniHLDE.nasob
+;vysledek je v IXHL
+;
+;	ld	l,h
+;	ld	a,lx
+;	ld	h,a
+;	ld	e,hx
+;
+;delime 256 vysledek EHL
+;	ld	b,3
+;trikrat2
+;	srl	e
+;	rr	h
+;	rr	l
+;	djnz	trikrat2
+;delime tremi
+;	ld	bc,#121F
+;	call	NUMBER3
+;
+;	pop	ix
+;
+;
+;LBA 48Bits
+;
+;	inc	hx
+;
+;	ld	hl,TEXT_NO
+;	bit	2,(ix-83)
+;	jr	z,L13
+;
+;	ld	hl,TEXT_YES
+;L13	ld	bc,#111C
+;	call	T42_TEXT
+;
+;
+;hledani prvni sectoru pro data
+;prohledava se MBR, prvni partion, a hleda se v root dir. prvni datovy sector prvniho souboru
+;prvni sektor disku je MBR:
+;
+;na 1BEh zacinaji parametry prvni partition (10h ka d )
+;na 08h a  0Bh je cislo relativniho sektoru zacatku partition (nebo na 01h a  03h ve formatu hlava/sektor/cylindr)
+;
+;prvn  sektor partition je BOOT a tam jsou tyto zaj mav   daje:
+;0Bh, 0Ch   pocet bytu na sektor
+;0Eh, 0Fh   pocet sektoru pred prvni FAT
+;10h   pocet FAT
+;11h, 12h   pocet polozek v ROOTu
+;16h, 17h   pocet sektoru ve FAT
+;prvn  datov  sektor je: zacatek_partition + sektoru_pred_FAT + sektoru_ve_FAT * pocet_FAT + polozek_v_ROOT * 20h / bytu_na_sektor
+;
+;	ld	hl,TEXTPARSEC
+;	ld	bc,#1302
+;	call	T42_TEXT
+;
+;;nacteni MBR
+;	ld	ix,BUFFER
+;	ld	a,%00010000	;slave
+;	ld	bc,0
+;	ld	de,0		;LBA=0 MBR
+;	call	LBAREAD
+;; dodelat osetreni erroru
+;	inc	hx
+;	inc	hx 		;+512
+;	ld	e,(ix-58)	;info o prvni partition zacina na #1BE
+;	ld	d,(ix-57)
+;	ex	de,hl		;v hl je cislo sectoru kde zacina boot prvni par.
+;	ld	(bootsec2+1),hl	;schovame cislo bootsectoru pro vypocet
+;	ld	bc,#1310
+;	push	hl
+;	call	NUMBER3
+;nacteni BOOT sectoru prvni partition
+;	pop	hl
+;	ld	c,l
+;	ld	e,h
+;	ld	d,0
+;	ld	b,d
+;	ld	ix,BUFFER
+;	ld	a,%00010000	;slave
+;	call	LBAREAD
+; dodelat osetreni erroru
+; vypocet datove oblasti prvniho souboru
+;
+;	ld	hl,TEXTDATASEC
+;	ld	bc,#1315
+;	call	T42_TEXT
+;
+;bootsec2
+;	ld	hl,0
+;	ld	e,(ix+14)	;pricteme sectory pred FAT
+;	ld	d,(ix+15)
+;	add	hl,de
+;	push	hl
+;	push	ix
+;	ld	e,(ix+16)	;pocet FAT
+;	ld	d,0
+;	ld	l,(ix+22)	;pocet sektoru ve FAT
+;	ld	h,(ix+23)
+;	call	nasobeniHLDE.nasob	;vysledek v IXHL
+;	pop	ix
+;	pop	de
+;	add	hl,de		;pricteme jen spodnich 16 bitu
+;	ld	e,(ix+17)	;pocet polozek v ROOTu
+;	ld	d,(ix+18)
+;	; vydelime 16; predpokladame velikost sec. 512 a 32bytu v root polozce
+;	ld	b,4
+;ctyrikrat2
+;	srl	d
+;	rr	e
+;	djnz	ctyrikrat2
+;	add	hl,de
+;	push	hl
+;	ld	bc,#1323
+;	call	NUMBER4
+;	pop	hl
+;;pokud je General setting nastavena autoconfigurace, tak ulozi vypocteny prvni datovy sector
+;
+;	ld	a,(@autoconfig)
+;	or	a
+;	jr	z,nemenfirstdatasectorm2
+;	ld	de,VDT+(VDTLEN/2)+5
+;	ex	de,hl
+;	ld	(hl),e
+;	inc	hl
+;	ld	(hl),d
+;
+;nemenfirstdatasectorm2
+;
+;/*
+;LBA Total sectors
+;
+;	ld	hl,(BUFFER+200)
+;	ld	(D2LBA),hl
+;	ld	bc,#1124
+;	call	NUMBER4
+;
+;	ld	hl,(BUFFER+202)
+;	ld	(D2LBA+2),hl
+;	ld	bc,#111E
+;	call	NUMBER4
+;
+;	ld	hl,(BUFFER+204)
+;	ld	(D2LBA+4),hl
+;	ld	bc,#1118
+;	call	NUMBER4
+;*/
+;
+;vyruseni SLAVE
+;*/
+*/
+	ld	hl,TEXT17		;DMA info
+	ld	bc,#1402
+	call	T42_TEXT
+	inc	c
+	inc	c
+	ld	hl,TEXT18
+;	ld	bc,#1203
+	call	T42_TEXT
+	inc	c
+	ld	hl,TEXT19
+;	ld	bc,#1303
+	call	T42_TEXT
+
+Endinentify
+;projed partisny, zda jsou vsechny platne
+;	call	check_for_valid
+;	jp	z,end_easy		;tohle musi pryc, pri ani jedne platne partisne to primo vyskakovalo z programu ven
+
+;old
+;	ld	a,(@autoconfig)
+;	or	a
+;	jp	nz,manual_partition_selection
+
+; @autoconfig: 0=AUTO, 1=MANUAL
+; drzeny SPACE vynuti MANUAL pro tento beh
+	ld      a,#7f
+	in      a,(#fe)                ; #7FFE, bit 0 = SPACE
+	cpl
+	and     1                      ; A=1 SPACE, A=0 bez SPACE
+
+	ld      hl,@autoconfig
+	or      (hl)                   ; spoj SPACE s konfiguracnim bajtem
+	ld      (hl),a                 ; pri SPACE skutecne zmeni 0 -> 1
+	jp      nz,manual_partition_selection
+
+;automatic_partition_selection
+	ld	a,(@partition)
+	call	test_partition		;test just selected partition
+	jr	nz, fp1
+
+;Z=invalid, seek for valid one
+;neni platna, hledej prvni platnou a nainstluj  ji
+	call	check_for_valid
+	jr	nz,found_partition
+
+;žádná platná partition. Co s tim? Vynulujeme VDT tabulku a partisn nechame, protoze pak se do VDT tabulky vepise 0
+	ld	hl,VDT
+	ld	de,VDT+1
+	ld	bc,255
+	ld	(hl),l
+	ldir
+	jr	end_easy		;nenasli jsme platnou partisnu
+/*
+vp1	ld	hl,TEXT_NO_VALID
+	ld	bc,#1602
+	call	T42_TEXT
+	xor	a
+	jr	ayn
+*/
+  
+found_partition
+	ld	(@partition),a		;dame ji do configu, odtud si ji pak vezme hlavni prog v konfig casti bsdosu
+
+fp1	ld	hl,TEXT_CLR
+	ld	bc,#1602
+	call	T42_TEXT
+	ld	hl,TEXT100
+	ld	bc,#1602
+	call	T42_TEXT
+
+valid_partition
+	ld	a,(@partition)
+	ld	h,0
+	ld	l,a
+	call	NUMBER0
+	ld	hl,TEXT_PRESS_KEY
+	ld	bc,#161A
+	call	T42_TEXT
+
+autoinstall_yes_no
+	ld	a,(@autoinstall)
+	or	a
+ayn	call	nz,ANYKEY
+	IFDEF ELEMENT
+		ld	hl,TEXT_CLR
+		ld	bc,#1602
+		call	T42_TEXT
+		ld	hl,TEXT_AUTOSYS
+		ld	bc,#160C
+		call	T42_TEXT
+	ENDIF
+	ret
+; navrat
+
+;------------------------------------------------------------
+; eLeMeNt only: service #30 returned, so AUTOSYS was not started.
+; Replace the status line, wait for acknowledgement and return
+; to MAIN, which will continue with the BSROM reset fallback.
+AUTOSYS_NOT_FOUND
+	ld	hl,TEXT_CLR
+	ld	bc,#1602
+	call	T42_TEXT
+	ld	hl,TEXT_AUTOSYS_NOT_FOUND
+	ld	bc,#1606
+	call	T42_TEXT
+	call	ANYKEY
+	ret
+
+test_partition				;IN=A=partition number 1-4, OUT=Z=invalid partition, NZ=valid
+	ld	de,32			;testuj zvolenou partisnu (v @partition), zda je platna
+;	ld	a,(@partition)
+	ld	b,a
+	ld	hl,VDT-32
+loop1	add	hl,de
+	djnz	loop1
+	bit	1,(hl)
+	ret
+;	jr	nz,fp1			;NZ=set partition (from autoconfig or manual) is valid
+
+;IN=noothing, OUT=NZ=valid, Z=invalid
+check_for_valid
+	ld	de,32			; kazdy VDT zaznam ma presne 32 bajtu
+	ld	hl,VDT		
+	ld	a,1
+	ld	b,4
+find_valid:
+        bit	1,(hl)
+	ret	nz 
+;       jr      nz,found_partition
+	add	hl,de
+	inc	a
+        djnz    find_valid
+	xor	a			; zadna platna partition -> Z
+	ret
+
+end_easy
+	ld	hl,TEXT_NO_VALID
+	ld	bc,#1602
+	call	T42_TEXT
+
+end_easy_exit
+	IFDEF ELEMENT		;stisk EDIT=konec, v pripade EL, ktery neni jeste inicializovany, musime udelat 128K reset
+	xor	a
+	jp	#3978
+	ELSE
+
+      call    #3C98
+        di
+        xor     a
+        ld      bc,#5C00
+
+clear_sysvars
+        ld      (bc),a
+        inc     c
+        jr      nz,clear_sysvars
+
+        ld      hl,START-1
+        jp      #1200
+
+/*
+	pop	hl		;navratova adresa
+	ret			;navrat do BASICu
+*/
+	ENDIF
+;user menu
+;priprava k menu, rutina IINKEY vraci v A kod klavesy, #B=nahoru, #A=dolu
+;definice
+cursor		equ %00001000		;item with cursor (dark blue cursor)
+no_curs		equ %11110111		;item without cursor
+
+page		equ 3		;we will move around 4 items
+cursor_w_stadr	dw #5981	;start address of cursor
+cursor_w_curad	dw #5981	;current address of cursor
+cursor_len	equ 29
+wind_curs_item	db #55		;current start cursor position of the window (0-page)
+;item_pg_start	dw #5555	;;;;;start address of first dir item on displayed page
+
+key_enter	ld	a,(wind_curs_item)
+		inc	a
+		call	test_partition
+		jp	nz,found_partition	;NZ=we found the valid one
+
+		ld	hl,TEXT_CLR
+		ld	bc,#1602
+		push	bc
+		call	T42_TEXT
+
+		ld	hl,TEXT_PART_NOUSE
+		ld	bc,#1605
+		call	T42_TEXT
+
+		call	ANYKEY
+
+		ld	hl,TEXT_CLR
+		pop	bc
+		call	T42_TEXT
+
+		jr	 mps1		;zachovej kurzor, kde je
+
+;		call	undraw_cursor
+
+manual_partition_selection
+		xor	a	;inicializace
+		ld	(wind_curs_item),a
+		ld	hl,(cursor_w_stadr)
+		ld	(cursor_w_curad),hl
+
+		call	draw_cursor
+
+mps1		ld	hl,TEXT_MAKE_SELEC
+		ld	bc,#1603
+		call	T42_TEXT
+;key detection loop
+iik		call	KEYSCAN
+		ld	de,32
+		cp	#B
+		call	z,key_up
+		cp	#A
+		call	z,key_down
+		cp	13
+		jr	z,key_enter
+		cp	7
+		jr	z,end_easy		;EDIT pressed, end EasySD
+		jr	iik
+
+key_up		ld	hl,wind_curs_item
+		ld	a,(hl)
+		or	a
+		ret	z		;Z=already first line
+		dec	(hl)
+		call	undraw_cursor
+		ld	hl,(cursor_w_curad)
+		or	a
+		sbc	hl,de
+		ld	(cursor_w_curad),hl
+		call	draw_cursor
+		ret
+
+key_down	ld	hl,wind_curs_item
+		ld	a,(hl)
+		cp	page
+		ret	z
+		inc	(hl)
+		call	undraw_cursor
+		ld	hl,(cursor_w_curad)
+		add	hl,de
+		ld	(cursor_w_curad),hl
+		call	draw_cursor
+		ret
+
+undraw_cursor	ld	hl,(cursor_w_curad)
+		ld	a,(hl)
+		and	no_curs
+;		and	%11110111
+		jr	dc_1
+draw_cursor	ld	hl,(cursor_w_curad)
+		ld	a,(hl)
+;		or	%00001000
+		or	cursor
+
+dc_1		ld	b,cursor_len
+dc_2		ld	(hl),a
+		inc	hl
+		djnz	dc_2
+		xor	a			;A=0 to avoid artifical key press
+		ret
+/*
+undraw_cursor	ld	a,unmark_no_curs
+		jr	dc_1
+draw_cursor	ld	a,unmark_cursor
+dc_1		ld	hl,(cursor_w_curad)
+		ld	b,cursor_len
+dc_2		ld	(hl),a
+		inc	hl
+		djnz	dc_2
+		xor	a			;A=0 to avoid artifical key press
+		ret
+*/
+;------------------------------
+	IFDEF	ELEMENT
+TEXT1	dc	16,70,"EasySD 1.0-eLeMeNtZX"
+	ELSE
+TEXT1	dc	16,70,"EasySD 1.0 - MB03+"
+	ENDIF
+TEXT2	dc	16,3,127," MB03+ team 2026"
+;TEXT3	dc	16,70,"MASTER DISK:"
+TEXT3	dc	16,70,"SDcard:"
+;TEXT4	dc	16,70,"Model:"
+TEXT4	dc	16,70,"ProductRevisionNr.:"
+;TEXT5	dc	16,70,"Firmware:"
+TEXT5	dc	16,70,"ProductSerialNr.:"
+;TEXT6	dc	16,70,"Serial number:"
+TEXT6	dc	16,70,"Manufacturing date:"
+;TEXT7	dc	16,70,"LBA28-bit:     LBA48-bit:     DMA:"
+TEXT7	dc	16,70,"ReadBlLen:       SDcard size: "
+;TEXT8	dc	16,70,"SLAVE DISK:"
+TEXT8	dc	16,66,"checking..."
+TEXT_SD_NOT_FOUND	dc	16,66,"Not Found  "	; 11 znaku = prepise cele "checking..."
+TEXT9	db	"Total LBA 48 bi"
+	dc	"t sec.:"
+TEXT10	db	"Start cloning ("
+	dc	"1/2/n)"
+TEXT11	dc	16,66,"Disk time out"
+TEXT12	dc	16,66,"Status b0 error"
+TEXT13	dc	16,66,"DRQ error      "
+TEXT14	dc	16,66,"Drive not ready"
+TEXT15	dc	16,66,"Other error    "
+TEXT16	db	16,69,"OK             "
+	dc	"     "
+TEXT17	dc	16,70,"DMA Speed:"
+TEXT18	db	16,70,"Port: "
+	db	16,69
+	dc	"3T"
+TEXT19	db	16,70,"Memory: "
+	db	16,69
+	dc	"3T" 
+;/*
+;TEXT17	db	"Read errors:   "
+;	dc	"    "
+;TEXT18	db	"Write errors:  "
+;	dc	"   "
+;TEXT19	db	"Sector counter:"
+;	dc	"     "
+;TEXT20	db	"---------------"
+;	db	"---------------"
+;	dc	"----------"
+;TEXT21	db	"WARNING! "
+;	db	"Drives aren't i"
+;	dc	"dentical!!!"
+;TEXT22	db	"Drives are "
+;	dc	"idencial"
+;TEXT23	db	"Cloning complet"
+;	dc	"ed"
+;TEXT24	dc	"1. COUNTDOWN"
+;TEXT25	dc	"2. COUNTUP"
+;*/
+TEXT_YES
+	dc	16,69,"Yes"
+TEXT_NO	dc	16,69,"No"
+TEXT_CLR
+	db	"               "
+	db	"               "
+	dc	"         "
+
+;TEXT100	dc	16,67,"Press a key to install to partition "
+TEXT100		dc	16,67,"Installed to partition "
+TEXT_PRESS_KEY	dc	16,67,", press a key"
+TEXT_AUTOSYS	dc	16,67,"Running AUTOSYS..."
+TEXT_AUTOSYS_NOT_FOUND	dc	16,67,"AUTOSYS not found, press a key"
+;TEXT101	dc	16,70,"C/H/S:"
+;TEXT101	dc	"Permanent WP:      Temporal WP:"
+TEXT102	db	16,70,"Capacity: "
+	dc	16,69,"     MB"
+TEXTPARSEC
+;	db	16,70,"Par  1stParSec  1stDatSec 1stFile"
+	db	16,70,"Par  1stParSec 1st_MBDFile  1stDatSec"
+	dc	16,69," "
+
+;TEXTDATASEC
+;	db	16,70,"1st Data Sec.:"
+;	dc	16,69," "
+
+Manufacturer1	dc	"Panasonic"
+Manufacturer2	dc	"Toshiba / Kioxia"
+Manufacturer3	dc	"SanDisk"
+Manufacturer1b	dc	"Samsung"
+Manufacturer1d	dc	"AData"	
+Manufacturer27	dc	"Phison"
+Manufacturer31	dc	"Silicon Power"
+Manufacturer74	dc	"Transcend"
+Manufacturer9f	dc	"Kingston"
+ManufacturerOther	dc	"Other"
+carka		dc	","
+lomeno		dc	"/"
+TEXT_GB		dc	" G"
+REV_TEXT	db	"0.","0"+#80	; CID Product Revision, napr. #61 -> 6.1
+TEXT_CSD	dc	"CSD:"
+TEXT_10		dc	"1.0"
+TEXT_20		dc	"2.0"
+TEXT_PART_TYPE	dc	"Partition type:"
+TEXT_FAT16	dc	16,69,"F16"		; platna FAT partition vzdy cyan
+TEXT_FAT32	dc	16,69,"F32"		; platna FAT partition vzdy cyan
+TEXT_NTFS	dc	16,66,"NTFS"
+TEXT_EXFAT	dc	16,66,"exFAT"
+TEXT_LINUX	dc	16,66,"Linux"
+TEXT_GPT	dc	16,66,"GPT"
+TEXT_EXTENDED	dc	16,66,"Extended"
+TEXT_OTHER	dc	16,66,"Other"		;muzeme si dovolit delsi text, bude na radku sam
+TEXT_SFL16	dc	16,69,"SFl_F16"	; superfloppy FAT16 cyan
+TEXT_SFL32	dc	16,69,"SFl_F32"	; superfloppy FAT32 cyan
+TEXT_NODATA	dc	16,66,"No Data"
+TEXT_PART_EMPTY	dc	16,66,"Partittion empty"
+TEXT_NO_VALID	dc	16,66,"No valid partition found, press a key"
+TEXT_PART_NOUSE	dc	16,66,"Partition not usable, try again"
+;TEXT_MAKE_SELEC	dc	16,67,"Make selection. Press <EDIT> to exit"
+TEXT_MAKE_SELEC	dc	16,67,"Press ENTER to select, EDIT to exit"
+;------------------------------
+;------------------------------
+T_X	equ	0
+T_Y	equ	0
+T_XLEN	equ	31
+T_YLEN	equ	24
+T_ATTR1	equ	%01010110
+T_ATTR2	equ	%01000110
+T_ATTR3	equ	70
+;------------------------------
+T_START
+T_ATTR	ld	b,T_Y+1
+	ld	de,32
+	ld	hl,22528+T_X-32
+T_COL1	add	hl,de
+	djnz	T_COL1
+	ld	bc,T_XLEN
+	ld	d,h
+	ld	e,l
+	inc	de
+	ld	(hl),T_ATTR1
+	push	hl
+	push	bc
+	ldir
+	pop	bc
+	pop	hl
+	dec	bc
+	ld	a,T_YLEN
+	dec	a
+	ld	de,32
+	add	hl,de
+T_COL2	push	hl
+	push	bc
+	push	de
+	ld	(hl),T_ATTR2
+	ld	d,h
+	ld	e,l
+	inc	de
+	ldir
+	ex	de,hl
+	ld	(hl),T_ATTR1
+	pop	de
+	pop	bc
+	pop	hl
+	add	hl,de
+	dec	a
+	jr	nz,T_COL2
+
+T_CARY
+	ld	b,T_Y
+	ld	c,T_X
+	ld	hl,T_HELP1
+	push	bc
+	call	T_ONE
+	pop	bc
+	inc	b
+	ld	hl,T_HELP2
+	push	bc
+	call	T_ONE
+	pop	bc
+	inc	b
+	ld	a,T_YLEN
+	sub	3
+T_CAR1	ld	hl,T_HELP3
+	push	bc
+	push	af
+	call	T_ONE
+	pop	af
+	pop	bc
+	inc	b
+	dec	a
+	jr	nz,T_CAR1
+	ld	hl,T_HELP4
+
+T_ONE	ld	a,(hl)
+	push	hl
+	push	bc
+	call	T_ZNAK
+	pop	bc
+	pop	hl
+	inc	c
+	inc	hl
+	ld	d,T_XLEN-1
+	ld	e,(hl)
+	push	hl
+T_CYKL	push	bc
+	push	de
+	ld	a,e
+	call	T_ZNAK
+	pop	de
+	pop	bc
+	inc	c
+	dec	d
+	jr	nz,T_CYKL
+	pop	hl
+	inc	hl
+	ld	a,(hl)
+
+T_ZNAK	ld	h,0
+	ld	l,a
+	ld	de,T_0
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	add	hl,de
+	ld	a,b
+	rrca
+	rrca
+	rrca
+	and	#E0
+	add	a,c
+	ld	e,a
+	ld	a,b
+	and	#18
+	or	#40
+	ld	d,a
+	ld	b,8
+T_ZNA1	ld	a,(hl)
+	ld	(de),a
+	inc	hl
+	inc	d
+	djnz	T_ZNA1
+	ret
+
+T_HELP1	defb	0,1,2
+T_HELP2	defb	3,10,6
+T_HELP3	defb	3,10,4
+T_HELP4	defb	5,9,7
+
+T_0	defb	255
+	defb	129
+	defb	129
+	defb	189
+	defb	189
+	defb	129
+	defb	129
+	defb	255
+T_1	defb	255
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	255
+T_2	defb	255
+	defb	129
+	defb	%10111001
+	defb	%10111001
+	defb	%10011101
+	defb	%10011101
+	defb	129
+	defb	255
+T_3	defb	128
+	defb	128
+	defb	128
+	defb	128
+	defb	128
+	defb	128
+	defb	128
+	defb	128
+T_4	defb	129
+	defb	129
+	defb	129
+	defb	129
+	defb	129
+	defb	129
+	defb	129
+	defb	129
+T_5	defb	128
+	defb	128
+	defb	128
+	defb	128
+	defb	128
+	defb	128
+	defb	128
+	defb	255
+T_6	defb	255
+	defb	129
+	defb	153
+	defb	189
+	defb	153
+	defb	153
+	defb	129
+	defb	255
+T_7	defb	255
+	defb	129
+	defb	153
+	defb	153
+	defb	189
+	defb	153
+	defb	129
+	defb	255
+T_8	defb	255
+	defb	129
+	defb	129
+	defb	153
+	defb	153
+	defb	129
+	defb	129
+	defb	255
+T_9	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	255
+T_10	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+	defb	0
+;------------------------------
+;TISK CISLA BC-POZICE HL-HODNOT
+;TISKNE CISLO TYPU INTEGER
+;STAR-RUTINA TISKU 1 ZNAKU NA
+;POZICI BC (0,0)
+NUMBER4	ld	de,-10000
+	call	NUM_JED
+NUMBER3	ld	de,-1000
+	call	NUM_JED
+NUMBER2	ld	de,-100
+	call	NUM_JED
+NUMBER1	ld	de,-10
+	call	NUM_JED
+NUMBER0	ld	a,l
+	add	a,48
+	push	bc		;new
+	call	T42
+	pop	bc
+	ret
+
+NUM_JED	xor	a
+NUM_JED1
+	add	hl,de
+	jr	nc,NUM_PRIC
+	inc	a
+	jr	NUM_JED1
+NUM_PRIC
+	sbc	hl,de
+	add	a,48
+	push	bc
+	push	hl
+	call	T42
+	pop	hl
+	pop	bc
+	inc	c
+	ret
+;/*
+;T42_TEXT ld	a,(hl)
+;	and	127
+;	push	hl
+;	push	bc
+;	call	T42
+;	pop	bc
+;	pop	hl
+;	inc	c
+;	ld	a,(hl)
+;	rla
+;	inc	hl
+;	jr	nc,T42_TEXT
+;	ret
+;*/
+;Tisk textu 42 znaku na radek
+;-umi tisknou v danych mezich urcenych promenymi t42_borb a t42_bore
+;-posledni znak ma nastaveny bit7
+;-podporuje enter 13
+;-umi tiskout i barvy dle promene t42_att; pokud je nula neobarvuje
+;-podporuje znemu barvy pres kod 16 nasledovany hodnotou attributu
+T42_TEXT
+	ld	a,(hl)
+	and	127
+	cp	13
+	jr	z,T42_ZMEN
+	cp	16
+	jr	z,T42_ZMENCOLOR
+	push	hl
+	push	bc
+	call	T42
+	pop	bc
+	pop	hl
+	ld	a,(T42_BORE)
+	dec	a
+	cp	c
+	jr	c,T42_ZMEN
+	inc	c
+T42_BACK
+	ld	a,(hl)
+	rla
+	ret	c
+	inc	hl
+	jr	T42_TEXT
+
+T42_ZMEN
+	ld	a,(T42_BORB)
+	ld	c,a
+	inc	b
+	ld	a,b
+	cp	24
+	jr	c,T42_BACK
+	ld	b,0
+	jr	T42_BACK
+T42_ZMENCOLOR
+	inc	hl
+	ld	a,(hl)
+	ld	(T42_ATT),a
+	jr	T42_BACK
+
+T42_BORB
+	defb	1
+T42_BORE
+	defb	41
+T42_ATT	defb	0
+
+;Tisk 42 znaku na radek
+;pocatek vlevo nahore (0,0)
+
+T42	ld	de,T42_SADA-256
+	ld	h,0
+	ld	l,a
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	add	hl,de
+	ld	a,b
+	rrca
+	rrca
+	rrca
+	and	%11100000
+	ld	e,a
+	ld	a,b
+	and	%00011000
+	or	%01000000
+	ld	d,a
+	ld	a,c
+	and	%00111100
+	rrca
+	rrca
+	ld	b,a
+	ld	a,c
+	and	%00111100
+	sub	b
+	add	a,e
+	ld	e,a
+	ld	a,c
+	and	%00000011
+	ld	b,8
+	jr	nz,T42_T123
+T42_T0	ld	a,(de)
+	and	%00000011
+	or	(hl)
+	ld	(de),a
+	inc	d
+	inc	hl
+	djnz	T42_T0
+	jr	T42_COLOR
+;	ret
+
+T42_T123
+	cp	2
+	jr	c,T42_T1
+	jr	z,T42_T2
+T42_T3	inc	e
+	inc	e
+T42_T31	ld	a,(de)
+	and	%11000000
+	ld	c,a
+	ld	a,(hl)
+	rrca
+	rrca
+	or	c
+	ld	(de),a
+	inc	d
+	inc	hl
+	djnz	T42_T31
+	jr	T42_COLOR
+
+;	ret
+
+T42_T1	xor	a
+	ld	(T42_P3),a
+	ld	(T42_P4),a
+	ld	a,%11111100
+	ld	(T42_P1+1),a
+	cpl
+	call	T42_P_A
+	ld	a,%00001111
+	ld	(T42_P1+1),a
+	cpl
+	jr	T42_P_B
+
+T42_T2	inc	e
+	ld	a,7
+	ld	(T42_P3),a
+	ld	(T42_P4),a
+	ld	a,%11110000
+	ld	(T42_P1+1),a
+	cpl
+	call	T42_P_A
+	ld	a,%00111111
+	ld	(T42_P1+1),a
+	cpl
+
+T42_P_B	ld	b,8
+T42_P_A	ld	(T42_P2+1),a
+	push	hl
+	push	de
+T42_P0	ld	a,(de)
+T42_P1	and	0
+	ld	c,a
+	ld	a,(hl)
+	rlca
+	rlca
+T42_P3	nop
+T42_P4	nop
+T42_P2	and	0
+	or	c
+	ld	(de),a
+	inc	d
+	inc	hl
+	djnz	T42_P0
+
+	push	de
+	call	T42_COLOR
+	pop	de
+; podpora barev
+	pop	de
+	pop	hl
+	inc	e
+
+	ret
+
+T42_COLOR
+	ld	a,(T42_ATT)
+	or	a
+	ret	z
+; pokud je nula, tak se neobarvuje
+	dec	d
+	ld	a,d
+	rrca
+	rrca
+	rrca
+	and	3
+	or	88
+	ld	d,a
+	ld	a,(T42_ATT)
+	ld	(de),a
+	ret
+
+	defb	%11111100
+	defb	%10000100
+	defb	%10000100
+	defb	%10000100
+	defb	%10000100
+	defb	%10000100
+	defb	%10000100
+	defb	%11111100
+
+	defb	%00000000
+	defb	%01111000
+	defb	%01111000
+	defb	%01111000
+	defb	%01111000
+	defb	%01111000
+	defb	%01111000
+	defb	%00000000
+
+T42_SADA
+	defw	0,0,0,0
+	defw	35064,20560
+	defw	32,32,53456,0,0,0
+	defw	63568,20560,63568
+	defw	80,63520,63648
+	defw	63528,32,51200
+	defw	12504,55392,152
+	defw	8192,8272,34896
+	defw	112,24624,0,0,0
+	defw	24624
+	defw	24672
+	defw	24672
+	defw	48
+	defw	12384
+	defw	12336
+	defw	12336
+	defw	96
+	defw	20480
+	defw	63520
+	defw	20512
+	defw	0
+	defw	8192
+	defw	63520
+	defw	8224
+	defw	0
+	defw	0
+	defw	0
+	defw	12288
+	defw	96
+	defw	0
+	defw	30720
+	defw	0
+	defw	0
+	defw	0
+	defw	0
+	defw	24576
+	defw	96
+	defw	2048
+	defw	12312
+	defw	49248
+	defw	128
+	defw	55408
+	defw	51432
+	defw	51400
+	defw	112
+	defw	24608
+	defw	24800
+	defw	24672
+	defw	240
+	defw	34928
+	defw	28680
+	defw	49344
+	defw	248
+	defw	51312
+	defw	12296
+	defw	51208
+	defw	112
+	defw	8208
+	defw	53312
+	defw	4344
+	defw	16
+	defw	49400
+	defw	61632
+	defw	51208
+	defw	112
+	defw	51312
+	defw	61632
+	defw	51400
+	defw	112
+	defw	6392
+	defw	12312
+	defw	49248
+	defw	128
+	defw	51312
+	defw	28872
+	defw	51400
+	defw	112
+	defw	51312
+	defw	30920
+	defw	51208
+	defw	112
+	defw	0
+	defw	96
+	defw	24576
+	defw	0
+	defw	0
+	defw	48
+	defw	12288
+	defw	96
+	defw	6144
+	defw	24624
+	defw	6192
+	defw	0
+	defw	0
+	defw	120
+	defw	120
+	defw	0
+	defw	24576
+	defw	6192
+	defw	24624
+	defw	0
+	defw	55408
+	defw	12312
+	defw	32
+	defw	32
+	defw	34928
+	defw	55464
+	defw	32944
+	defw	112
+	defw	51312
+	defw	63688
+	defw	51400
+	defw	200
+	defw	51440
+	defw	61640
+	defw	51400
+	defw	240
+	defw	51312
+	defw	49344
+	defw	51392
+	defw	112
+	defw	51440
+	defw	51400
+	defw	51400
+	defw	240
+	defw	49400
+	defw	61632
+	defw	49344
+	defw	248
+	defw	49400
+	defw	61632
+	defw	49344
+	defw	192
+	defw	51312
+	defw	55488
+	defw	51400
+	defw	112
+	defw	51400
+	defw	63688
+	defw	51400
+	defw	200
+	defw	24824
+	defw	24672
+	defw	24672
+	defw	248
+	defw	2056
+	defw	2056
+	defw	51400
+	defw	112
+	defw	51400
+	defw	57552
+	defw	51408
+	defw	200
+	defw	49344
+	defw	49344
+	defw	49344
+	defw	248
+	defw	55432
+	defw	51432
+	defw	51400
+	defw	200
+	defw	51400
+	defw	59592
+	defw	51416
+	defw	200
+	defw	51312
+	defw	51400
+	defw	51400
+	defw	112
+	defw	51440
+	defw	61640
+	defw	49344
+	defw	192
+	defw	51312
+	defw	51400
+	defw	55528
+	defw	120
+	defw	51440
+	defw	61640
+	defw	51408
+	defw	200
+	defw	51312
+	defw	28864
+	defw	51208
+	defw	112
+	defw	24824
+	defw	24672
+	defw	24672
+	defw	96
+	defw	51400
+	defw	51400
+	defw	51400
+	defw	112
+	defw	51400
+	defw	51400
+	defw	20680
+	defw	32
+	defw	51400
+	defw	51400
+	defw	59592
+	defw	80
+	defw	55432
+	defw	24688
+	defw	55408
+	defw	136
+	defw	53384
+	defw	24672
+	defw	24672
+	defw	96
+	defw	6392
+	defw	24624
+	defw	49344
+	defw	248
+	defw	24696
+	defw	24672
+	defw	24672
+	defw	120
+	defw	32768
+	defw	24768
+	defw	6192
+	defw	8
+	defw	6264
+	defw	6168
+	defw	6168
+	defw	120
+	defw	28704
+	defw	8360
+	defw	8224
+	defw	32
+	defw	0
+	defw	0
+	defw	0
+	defw	252
+	defw	18480
+	defw	57416
+	defw	16448
+	defw	248
+	defw	0
+	defw	2160
+	defw	51320
+	defw	120
+	defw	49152
+	defw	61632
+	defw	51400
+	defw	240
+	defw	0
+	defw	49264
+	defw	49344
+	defw	112
+	defw	2048
+	defw	30728
+	defw	51400
+	defw	120
+	defw	0
+	defw	51312
+	defw	49392
+	defw	120
+	defw	14336
+	defw	28768
+	defw	24672
+	defw	96
+	defw	0
+	defw	51320
+	defw	30920
+	defw	28680
+	defw	49152
+	defw	61632
+	defw	51400
+	defw	200
+	defw	24576
+	defw	57344
+	defw	24672
+	defw	240
+	defw	12288
+	defw	12288
+	defw	12336
+	defw	24752
+	defw	49152
+	defw	57552
+	defw	53472
+	defw	200
+	defw	24576
+	defw	24672
+	defw	24672
+	defw	56
+	defw	0
+	defw	59600
+	defw	59624
+	defw	232
+	defw	0
+	defw	51440
+	defw	51400
+	defw	200
+	defw	0
+	defw	51312
+	defw	51400
+	defw	112
+	defw	0
+	defw	51440
+	defw	61640
+	defw	49344
+	defw	0
+	defw	51320
+	defw	30920
+	defw	6168
+	defw	0
+	defw	49272
+	defw	49344
+	defw	192
+	defw	0
+	defw	49264
+	defw	2160
+	defw	240
+	defw	24576
+	defw	24688
+	defw	24672
+	defw	56
+	defw	0
+	defw	51400
+	defw	51400
+	defw	112
+	defw	0
+	defw	51400
+	defw	28784
+	defw	32
+	defw	0
+	defw	59592
+	defw	59624
+	defw	80
+	defw	0
+	defw	55432
+	defw	55408
+	defw	136
+	defw	0
+	defw	51400
+	defw	30920
+	defw	28680
+	defw	0
+	defw	12536
+	defw	49248
+	defw	248
+	defw	24696
+	defw	49248
+	defw	24672
+	defw	120
+	defw	24672
+	defw	24672
+	defw	24672
+	defw	96
+	defw	12528
+	defw	6192
+	defw	12336
+	defw	240
+	defw	26676
+	defw	0
+	defw	0
+	defw	0
+	defw	34928
+	defw	51368
+	defw	34984
+	defw	112
+
+ANYKEY	call	KEYSCAN
+	jr	z,ANYKEY
+	ret
+
+	include	inkey.a80
+
+/*LMNho rutinu davame pryc, neumi autorepeat, bude nahrazena tou od Busyho
+;------------------------------
+ANYKEY	call	IINKEY
+	jr	z,ANYKEY
+	push	af
+ANYKEY_0
+	call	IINKEY
+	jr	nz,ANYKEY_0
+	pop	af
+	ret
+;------------------------------
+IINKEY	push	hl
+	push	de
+	push	bc
+	ld	bc,#7FFE
+	ld	h,0
+	ld	d,h
+	ld	e,h
+II1	ld	l,5
+	in	a,(c)
+II2	inc	h
+	rrca
+	jr	c,II3
+	ld	d,e
+	ld	e,h
+II3	dec	l
+	jr	nz,II2
+	rrc	b
+	jr	c,II1
+	ld	a,e
+	cp	#24
+	jr	nz,II5
+	ld	e,d
+	ld	d,#24
+II5	cp	2
+	jr	nz,II6
+	ld	e,d
+	ld	d,2
+II6	ld	hl,IINN
+	xor	a
+	xor	d
+	jr	z,II7
+	ld	hl,IISS
+	cp	2
+	jr	z,II7
+	ld	hl,IICS
+	cp	#24
+	jr	z,II7
+	ld	a,1
+	jr	II8
+
+II7	ld	d,0
+	add	hl,de
+	ld	a,(hl)
+II8	and	a
+	pop	bc
+	pop	de
+	pop	hl
+	ret
+
+IINN	defb	0," ",#1C
+	defb	"mnb"
+	defb	13
+	defb	"lkjh"
+	defb	"poiuy"
+	defb	"09876"
+	defb	"12345"
+	defb	"qwert"
+	defb	"asdfg"
+	defb	0
+	defb	"zxcv"
+
+IICS	defb	0,#11,#0E
+	defb	"MNB"
+	defb	2
+	defb	"LKJH"
+	defb	"POIUY"
+	defb	#0C,#0F,9,#0B,#0A
+	defb	7,6,4,5,8
+	defb	"QWERT"
+	defb	"ASDFG"
+	defb	#1F
+	defb	"ZXCV"
+
+IISS	defb	0,16,#1E
+	defb	".,*"
+	defb	3
+	defb	"=+-^"
+	defb	34 ;"
+	defb	";}{"
+	defb	"_)('&"
+	defb	"!@#$%"
+	defb	#12,#13,#14
+	defb	"<>"
+	defb	"~|"
+	defb	92 ;\
+	defb	123 ;{
+	defb	125 ;}
+	defb	#1D
+	defb	":`?/"
+*/
+
+;------------------------------
+/* also not needed for SD cards
+;IDENTIFY:ix-adresa, a-mas/slv
+IDENTIFY
+	or	%11100000
+	ld	(ACCMODE0+1),a
+	call	TST_BSY
+	ret	nz
+
+ACCMODE0
+	ld	a,0
+	out	(P_HEA),a
+	ld	a,#EC
+	out	(P_COM),a
+	call	TST_DR
+	ret	nz
+
+	call	RD_512
+
+	call	TST_BSY
+;
+	ret
+*/
+
+; Fyzicke cteni LBA sektoru se nyni vola primo pres SD_READ.
+; Vstup SD_READ: HL = horni 16 bitu LBA, DE = dolni 16 bitu LBA, IX = buffer.
+
+/* old IDE (CF card) part, replaced by SD card routines
+	or	%11100000
+;natvrdo LBA  bit6 urcuje, ze se pouzije LBA pristup
+	ld	(HEA_REG+1),a
+	call	TST_BSY
+	ret	nz
+
+HEA_REG	ld	a,%11100000
+	or	b
+; prictou se nejvyssi ctyri bity LBA
+	out	(P_HEA),a
+;cislo hlavicky
+
+	ld	a,1
+	out	(P_HSE),a
+;pocet sektoru 1*512B
+
+	ld	a,c
+	out	(P_NSE),a
+;cislo sektoru od 1
+
+	ld	a,e
+	out	(P_CYL),a
+	ld	a,d
+	out	(P_CYH),a
+;cislo cylindru
+
+	ld	a,#21
+	out	(P_COM),a
+
+
+	call	TST_DR
+	ret	nz
+
+	call	RD_512
+	call	TST_BSY
+;	ret	nz
+
+	ret
+
+
+TST_BSY
+	push	hl
+	ld	hl,0
+TST1
+	dec	hl
+	ld	a,l
+	or	h
+	jr	z,TOUT1
+P84	in	a,(P_COM)
+	cp	255
+	jr	z,TST1
+	bit	7,a
+	jr	nz,TST1
+	pop	hl
+	ret
+TOUT1
+	ld	a,255
+	or	a
+	pop	hl
+	ret
+;------------------------------
+;test BSY,DRDY,DRQ,ERR statusu
+TST_DR
+	call	TST_BSY
+	ret	nz
+	bit	6,a
+	jr	z,ER6
+	bit	3,a
+	jr	z,ER3
+	bit	0,a
+	jr	nz,ER1
+	ret
+ER6	ld	a,7
+	dec	a
+	ret
+ER3	ld	a,4
+	dec	a
+	ret
+ER1	ld	a,1
+	ret
+;------------------------------
+RD_512
+	ld	(DMADR1),ix
+	push	hl
+	ld	hl,RD1S
+	ld	bc,RD1L*256+DMA
+RDWR1	otir
+	ld	b,#87			;WR6 enable dma
+	out	(c),b
+	pop	hl
+	ld	bc,512
+	add	hl,bc
+	ret
+
+
+;------------------------------
+WR_512					;not use
+	ld	(DMADR2),ix
+	push	hl
+	ld	hl,WR1S
+	ld	bc,WR1L*256+DMA
+	jr	RDWR1
+
+;---<DMA_IN>-------------------
+RD1S
+	defb	195			;WR6 #C3 reset
+	defb	%01111101		;WR0 A->B, transfer
+	defw	P_DAT			;source port
+	defw	511			;lenght
+	defb	%00101100		;WR1 A-port,A-fixed
+	defb	%00010000		;WR2 B-memory, B-increment
+	defb	%10101101		;WR4 continuous,
+DMADR1	defw	0			;destination
+	defb	%10010010		;WR5 ready low,CE/WAIT,stop on end of block
+	defb	#CF			;WR6 load
+	defb	#B3			;WR6 force ready
+RD1L	equ	$-RD1S
+;---<DMA_OUT>------------------
+
+WR1S	defb	195
+	defb	%01111101
+DMADR2	defw	0
+	defw	511
+	defb	%00010100
+	defb	%00101000
+	defb	%10101101
+	defw	P_DAT
+	defb	%10010010
+	defb	#CF
+	defb	#B3
+WR1L	equ	$-WR1S
+*/
+
+;------------------------------
+;prohazuje vyssi a nizsi byte
+;zkurveny system
+PROHOD
+;HL adresa
+;B kolik bytu
+;MENI: A
+	push	hl
+	push	bc
+	rrc	b
+PROHOD1
+	ld	a,(hl)
+	inc	hl
+	ld	c,(hl)
+	dec	hl
+	ld	(hl),c
+	inc	hl
+	ld	(hl),a
+	inc	hl
+	djnz	PROHOD1
+	pop	bc
+	pop	hl
+	ret
+
+;------------------------------
+D1LBA	defw	0,0,0
+D2LBA	defw	0,0,0
+LEN	equ	$-32768
+
+FirstDataLBA	dw	0,0		;absolutni LBA zacatku datove oblasti
+
+;pracovni data pro FAT32 root-chain hledani fyzicky prvniho MBD/MBH
+FAT32_FirstFATLBA	dw	0,0
+FAT32_CurCluster	dw	0,0
+FAT32_DirLBA		dw	0,0
+FAT32_BestCluster	dw	#FFFF,#FFFF
+FAT32_SecPerClus	db	0
+FAT32_SectorsLeft	db	0
+FAT32_Found		db	0
+FAT32_BestEntry		block	32
+
+; POZOR: fat_type MUSI zustat bezprostredne pred BUFFER.
+; Stavajici kod testuje FAT typ take pres (ix-1), kdyz IX=BUFFER.
+fat_type	db	#55		;bit 0=Z=FAT16, bit 0=NZ=FAT32
+BUFFER	;equ	25000
+	block	512
+BUFFER2	;equ	38000
+	block	512
+zvukplay
+	ld	c,a
+	ld	a,(@playnoise)
+	or	a
+	ret	z
+	ld	a,c
+;	ld	a,1
+	ld	(zvukcmp+4),a
+	push	bc
+	call	zvukcmp
+	pop	bc
+zvukloop
+	push	bc
+	call	zvukcmp+73
+	ld	bc,2500
+zvukpause
+	dec	bc
+	ld	a,b
+	or	c
+	jr	nz,zvukpause
+	pop	bc
+	djnz	zvukloop
+	ret
+
+;------------------------------------------------------------------------------
+; Matematicke rutiny - fyzicka kopie pro GUI (MODULE GUI)
+;------------------------------------------------------------------------------
+MUL32x8:
+	MATH_MUL32x8
+
+ADD32_16:
+	MATH_ADD32_16
+
+SUB32_8:
+	MATH_SUB32_8
+
+ADD32_32:
+	MATH_ADD32_32
+
+
+	endmodule

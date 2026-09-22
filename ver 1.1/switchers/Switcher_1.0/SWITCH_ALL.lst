@@ -1,0 +1,349 @@
+# file opened: switch_device_unified.a80
+  1   0000              	DEVICE ZXSPECTRUM48
+  2   0000              	ORG #8000
+  3   8000
+  4   8000              ; Bezpecny spolecny prepinac EasySD/EasyCF 1.1 pro MB03+.
+  5   8000              ; USR #8000=CF, #8003=SD1, #8007=SD2, #800B=aktivni system,
+  6   8000              ; #800E=maska dostupnosti (bit 0=CF, bit 1=SD1, bit 2=SD2).
+  7   8000              ; Prepinaci vstupy vraci BC=0 pri uspechu, BC=1 pri NOT DETECTED.
+  8   8000
+  9   8000              PAGE_BSDOS		equ 97
+ 10   8000              PAGE_CF			equ 98
+ 11   8000              PAGE_SD_MIN_RAW		equ 102
+ 12   8000              PAGE_SD_MAX_RAW		equ 128
+ 13   8000              DOS_ACTIVE_PAGE		equ #001C
+ 14   8000              DOS_ACTIVE_DEVICE	equ #0032
+ 15   8000              DOS_PAGE_SD		equ #0033
+ 16   8000              DOS_SD1_PARTITION	equ #0034
+ 17   8000              DOS_SD2_PARTITION	equ #0035
+ 18   8000              DOS_CF_PARTITION	equ #3C90
+ 19   8000              DOS_INSTALL_SIGNATURE	equ #3C91
+ 20   8000              DRIVER_LASTD		equ #00E3
+ 21   8000              SD_CARD_SELECT		equ #0F12
+ 22   8000              SD_SLOT_1		equ #FE
+ 23   8000              SD_SLOT_2		equ #FD
+ 24   8000              SD1_LBA_STORE		equ #3C90
+ 25   8000              SD2_LBA_STORE		equ #3C94
+ 26   8000              CURRENT_LBA_LOW		equ #02AB
+ 27   8000              CAT_DEVICE		equ #0DC1
+ 28   8000              CAT_PARTITION		equ #0DDF
+ 29   8000              NORMAL_MAPPING		equ #40
+ 30   8000
+ 31   8000              ENTRY_CF
+ 32   8000 AF           	xor	a
+ 33   8001 18 0E        	jr	switch_start
+ 34   8003              ENTRY_SD1
+ 35   8003 3E 01        	ld	a,1
+ 36   8005 18 0A        	jr	switch_start
+ 37   8007              ENTRY_SD2
+ 38   8007 3E 02        	ld	a,2
+ 39   8009 18 06        	jr	switch_start
+ 40   800B              ENTRY_STATUS
+ 41   800B C3 D1 80     	jp	get_status
+ 42   800E              ENTRY_AVAILABILITY
+ 43   800E C3 E2 80     	jp	get_availability
+ 44   8011              	ASSERT ENTRY_CF = #8000
+ 45   8011              	ASSERT ENTRY_SD1 = #8003
+ 46   8011              	ASSERT ENTRY_SD2 = #8007
+ 47   8011              	ASSERT ENTRY_STATUS = #800B
+ 48   8011              	ASSERT ENTRY_AVAILABILITY = #800E
+ 49   8011
+ 50   8011              switch_start
+ 51   8011 F3           	di
+ 52   8012 32 25 82     	ld	(selected_device),a
+ 53   8015 CD EB 80     	call	detect_all
+ 54   8018 47           	ld	b,a
+ 55   8019 3A 25 82     	ld	a,(selected_device)
+ 56   801C B7           	or	a
+ 57   801D 28 12        	jr	z,.check_cf
+ 58   801F FE 02        	cp	2
+ 59   8021 28 07        	jr	z,.check_sd2
+ 60   8023 CB 48        	bit	1,b
+ 61   8025 20 0F        	jr	nz,.detected
+ 62   8027 C3 C8 80     	jp	switch_not_detected
+ 63   802A              .check_sd2
+ 64   802A CB 50        	bit	2,b
+ 65   802C 20 08        	jr	nz,.detected
+ 66   802E C3 C8 80     	jp	switch_not_detected
+ 67   8031              .check_cf
+ 68   8031 CB 40        	bit	0,b
+ 69   8033 CA C8 80     	jp	z,switch_not_detected
+ 70   8036              .detected
+ 71   8036 3E 61        	ld	a,PAGE_BSDOS
+ 72   8038 D3 17        	out	(23),a
+ 73   803A 3E 1E        	ld	a,#1E			;KILLX az po uspesne detekci
+ 74   803C E7           	rst	#20
+ 75   803D
+ 76   803D 3A 25 82     	ld	a,(selected_device)
+ 77   8040 B7           	or	a
+ 78   8041 28 48        	jr	z,switch_cf
+ 79   8043 FE 02        	cp	2
+ 80   8045 28 11        	jr	z,switch_sd2
+ 81   8047
+ 82   8047              switch_sd1
+ 83   8047 3E 01        	ld	a,1
+ 84   8049 32 32 00     	ld	(DOS_ACTIVE_DEVICE),a
+ 85   804C 3A 34 00     	ld	a,(DOS_SD1_PARTITION)
+ 86   804F 26 31        	ld	h,'1'
+ 87   8051 01 90 3C     	ld	bc,SD1_LBA_STORE
+ 88   8054 1E FE        	ld	e,SD_SLOT_1
+ 89   8056 18 0F        	jr	switch_sd_common
+ 90   8058
+ 91   8058              switch_sd2
+ 92   8058 3E 02        	ld	a,2
+ 93   805A 32 32 00     	ld	(DOS_ACTIVE_DEVICE),a
+ 94   805D 3A 35 00     	ld	a,(DOS_SD2_PARTITION)
+ 95   8060 26 32        	ld	h,'2'
+ 96   8062 01 94 3C     	ld	bc,SD2_LBA_STORE
+ 97   8065 1E FD        	ld	e,SD_SLOT_2
+ 98   8067
+ 99   8067              switch_sd_common
+100   8067 C6 30        	add	a,'0'
+101   8069 57           	ld	d,a
+102   806A 7B           	ld	a,e
+103   806B 32 26 82     	ld	(selected_slot),a
+104   806E 1E 50        	ld	e,'P'
+105   8070 ED 53 DF 0D  	ld	(CAT_PARTITION),de
+106   8074 2E 53        	ld	l,'S'
+107   8076 22 C1 0D     	ld	(CAT_DEVICE),hl
+108   8079 60           	ld	h,b
+109   807A 69           	ld	l,c
+110   807B 3A 33 00     	ld	a,(DOS_PAGE_SD)
+111   807E 32 1C 00     	ld	(DOS_ACTIVE_PAGE),a
+112   8081 D3 17        	out	(23),a
+113   8083 3A 26 82     	ld	a,(selected_slot)
+114   8086 32 12 0F     	ld	(SD_CARD_SELECT),a
+115   8089 18 22        	jr	finish_sd
+116   808B
+117   808B              switch_cf
+118   808B 3A 90 3C     	ld	a,(DOS_CF_PARTITION)
+119   808E C6 30        	add	a,'0'
+120   8090 67           	ld	h,a
+121   8091 2E 50        	ld	l,'P'
+122   8093 22 DF 0D     	ld	(CAT_PARTITION),hl
+123   8096 21 43 46     	ld	hl,#4643		;v pameti "CF"
+124   8099 22 C1 0D     	ld	(CAT_DEVICE),hl
+125   809C AF           	xor	a
+126   809D 32 32 00     	ld	(DOS_ACTIVE_DEVICE),a
+127   80A0 3E 62        	ld	a,PAGE_CF
+128   80A2 32 1C 00     	ld	(DOS_ACTIVE_PAGE),a
+129   80A5 D3 17        	out	(23),a
+130   80A7 AF           	xor	a
+131   80A8 32 E3 00     	ld	(DRIVER_LASTD),a
+132   80AB 18 12        	jr	finish_ok
+133   80AD
+134   80AD              finish_sd
+135   80AD AF           	xor	a
+136   80AE 32 E3 00     	ld	(DRIVER_LASTD),a
+137   80B1 11 AB 02     	ld	de,CURRENT_LBA_LOW
+138   80B4 01 02 00     	ld	bc,2
+139   80B7 ED B0        	ldir
+140   80B9 13           	inc	de
+141   80BA 01 02 00     	ld	bc,2
+142   80BD ED B0        	ldir
+143   80BF
+144   80BF              finish_ok
+145   80BF 3E 40        	ld	a,NORMAL_MAPPING
+146   80C1 D3 17        	out	(23),a
+147   80C3 01 00 00     	ld	bc,0
+148   80C6 FB           	ei
+149   80C7 C9           	ret
+150   80C8
+151   80C8              switch_not_detected
+152   80C8 3E 40        	ld	a,NORMAL_MAPPING
+153   80CA D3 17        	out	(23),a
+154   80CC 01 01 00     	ld	bc,1
+155   80CF FB           	ei
+156   80D0 C9           	ret
+157   80D1
+158   80D1              get_status
+159   80D1 F3           	di
+160   80D2 CD EB 80     	call	detect_all
+161   80D5 3A 28 82     	ld	a,(current_device)
+162   80D8 FE FF        	cp	#FF
+163   80DA CC AB 81     	call	z,detect_legacy_system
+164   80DD 4F           	ld	c,a
+165   80DE 06 00        	ld	b,0
+166   80E0 FB           	ei
+167   80E1 C9           	ret
+168   80E2
+169   80E2              get_availability
+170   80E2 F3           	di
+171   80E3 CD EB 80     	call	detect_all
+172   80E6 4F           	ld	c,a
+173   80E7 06 00        	ld	b,0
+174   80E9 FB           	ei
+175   80EA C9           	ret
+176   80EB
+177   80EB              ; OUT: A=maska bit0 CF, bit1 SD1, bit2 SD2. Vzdy obnovi #40 mapping.
+178   80EB              detect_all
+179   80EB AF           	xor	a
+180   80EC 32 27 82     	ld	(availability_mask),a
+181   80EF 3D           	dec	a
+182   80F0 32 28 82     	ld	(current_device),a
+183   80F3 3E 61        	ld	a,PAGE_BSDOS
+184   80F5 D3 17        	out	(23),a
+185   80F7
+186   80F7              ; Podpis kompletni instalace "ES11" v BSDOS page.
+187   80F7 2A 91 3C     	ld	hl,(DOS_INSTALL_SIGNATURE)
+188   80FA 11 45 53     	ld	de,#5345
+189   80FD B7           	or	a
+190   80FE ED 52        	sbc	hl,de
+191   8100 C2 A3 81     	jp	nz,.restore
+192   8103 2A 93 3C     	ld	hl,(DOS_INSTALL_SIGNATURE+2)
+193   8106 11 31 31     	ld	de,#3131
+194   8109 B7           	or	a
+195   810A ED 52        	sbc	hl,de
+196   810C C2 A3 81     	jp	nz,.restore
+197   810F
+198   810F              ; Zakladni opkody dispatcheru v page 97.
+199   810F 3A 1B 00     	ld	a,(#001B)
+200   8112 FE 3E        	cp	#3E
+201   8114 C2 A3 81     	jp	nz,.restore
+202   8117 3A 1D 00     	ld	a,(#001D)
+203   811A FE D3        	cp	#D3
+204   811C C2 A3 81     	jp	nz,.restore
+205   811F 3A 1E 00     	ld	a,(#001E)
+206   8122 FE 17        	cp	#17
+207   8124 20 7D        	jr	nz,.restore
+208   8126 3A 1F 00     	ld	a,(#001F)
+209   8129 FE C9        	cp	#C9
+210   812B 20 76        	jr	nz,.restore
+211   812D
+212   812D 3A 32 00     	ld	a,(DOS_ACTIVE_DEVICE)
+213   8130 FE 03        	cp	3
+214   8132 30 03        	jr	nc,.active_saved
+215   8134 32 28 82     	ld	(current_device),a
+216   8137              .active_saved
+217   8137 3A 33 00     	ld	a,(DOS_PAGE_SD)
+218   813A 32 29 82     	ld	(saved_sd_page),a
+219   813D 3A 34 00     	ld	a,(DOS_SD1_PARTITION)
+220   8140 32 2A 82     	ld	(saved_sd1_partition),a
+221   8143 3A 35 00     	ld	a,(DOS_SD2_PARTITION)
+222   8146 32 2B 82     	ld	(saved_sd2_partition),a
+223   8149 3A 90 3C     	ld	a,(DOS_CF_PARTITION)
+224   814C 32 2C 82     	ld	(saved_cf_partition),a
+225   814F
+226   814F              ; CF: platna partition, EasyCF10 a kompatibilni bankovni mostek.
+227   814F FE 01        	cp	1
+228   8151 38 15        	jr	c,.check_sd
+229   8153 FE 05        	cp	5
+230   8155 30 11        	jr	nc,.check_sd
+231   8157 3E 62        	ld	a,PAGE_CF
+232   8159 D3 17        	out	(23),a
+233   815B 11 FF 81     	ld	de,EASYCF_ID
+234   815E CD E4 81     	call	check_driver
+235   8161 20 05        	jr	nz,.check_sd
+236   8163 3E 01        	ld	a,1
+237   8165 32 27 82     	ld	(availability_mask),a
+238   8168
+239   8168              .check_sd
+240   8168 3A 29 82     	ld	a,(saved_sd_page)
+241   816B FE 66        	cp	PAGE_SD_MIN_RAW
+242   816D 38 34        	jr	c,.restore
+243   816F FE 81        	cp	PAGE_SD_MAX_RAW+1
+244   8171 30 30        	jr	nc,.restore
+245   8173 D3 17        	out	(23),a
+246   8175 11 07 82     	ld	de,EASYSD_ID
+247   8178 CD E4 81     	call	check_driver
+248   817B 20 26        	jr	nz,.restore
+249   817D
+250   817D 3A 2A 82     	ld	a,(saved_sd1_partition)
+251   8180 FE 01        	cp	1
+252   8182 38 0C        	jr	c,.check_sd2
+253   8184 FE 05        	cp	5
+254   8186 30 08        	jr	nc,.check_sd2
+255   8188 3A 27 82     	ld	a,(availability_mask)
+256   818B F6 02        	or	2
+257   818D 32 27 82     	ld	(availability_mask),a
+258   8190              .check_sd2
+259   8190 3A 2B 82     	ld	a,(saved_sd2_partition)
+260   8193 FE 01        	cp	1
+261   8195 38 0C        	jr	c,.restore
+262   8197 FE 05        	cp	5
+263   8199 30 08        	jr	nc,.restore
+264   819B 3A 27 82     	ld	a,(availability_mask)
+265   819E F6 04        	or	4
+266   81A0 32 27 82     	ld	(availability_mask),a
+267   81A3
+268   81A3              .restore
+269   81A3 3E 40        	ld	a,NORMAL_MAPPING
+270   81A5 D3 17        	out	(23),a
+271   81A7 3A 27 82     	ld	a,(availability_mask)
+272   81AA C9           	ret
+273   81AB
+274   81AB              ; Pokud jeste neni nainstalovana 1.1, rozpoznej samostatny starsi driver
+275   81AB              ; na pevne strance 98. Pouze informacni detekce, dostupnost switchu nemeni.
+276   81AB              ; OUT: A=3 EasyHDD, 4 EasySD 1.0, 5 EasyCF, #FF neznamy system.
+277   81AB              detect_legacy_system
+278   81AB 3E 62        	ld	a,PAGE_CF
+279   81AD D3 17        	out	(23),a
+280   81AF 11 FF 81     	ld	de,EASYCF_ID
+281   81B2 CD F8 81     	call	check_id
+282   81B5 3E 05        	ld	a,5
+283   81B7 28 20        	jr	z,.save
+284   81B9 11 07 82     	ld	de,EASYSD_ID
+285   81BC CD F8 81     	call	check_id
+286   81BF 3E 04        	ld	a,4
+287   81C1 28 16        	jr	z,.save
+288   81C3 11 0F 82     	ld	de,EASYHDD_207_ID
+289   81C6 CD F8 81     	call	check_id
+290   81C9 3E 03        	ld	a,3
+291   81CB 28 0C        	jr	z,.save
+292   81CD 11 17 82     	ld	de,EASYHDD_OLD_ID
+293   81D0 CD F8 81     	call	check_id
+294   81D3 3E 03        	ld	a,3
+295   81D5 28 02        	jr	z,.save
+296   81D7 3E FF        	ld	a,#FF
+297   81D9              .save
+298   81D9 32 28 82     	ld	(current_device),a
+299   81DC 3E 40        	ld	a,NORMAL_MAPPING
+300   81DE D3 17        	out	(23),a
+301   81E0 3A 28 82     	ld	a,(current_device)
+302   81E3 C9           	ret
+303   81E4
+304   81E4              ; DE=ocekavany osmibajtovy identifikator. Z=kompatibilni driver.
+305   81E4              check_driver
+306   81E4 CD F8 81     	call	check_id
+307   81E7 C0           	ret	nz
+308   81E8 21 1B 00     	ld	hl,#001B
+309   81EB 11 1F 82     	ld	de,DRIVER_BRIDGE_SIGNATURE
+310   81EE 06 06        	ld	b,6
+311   81F0              compare_bytes
+312   81F0 1A           	ld	a,(de)
+313   81F1 BE           	cp	(hl)
+314   81F2 C0           	ret	nz
+315   81F3 13           	inc	de
+316   81F4 23           	inc	hl
+317   81F5 10 F9        	djnz	compare_bytes
+318   81F7 C9           	ret
+319   81F8
+320   81F8              ; DE=ocekavany osmibajtovy identifikator na offsetu #0008.
+321   81F8              check_id
+322   81F8 21 08 00     	ld	hl,#0008
+323   81FB 06 08        	ld	b,8
+324   81FD 18 F1        	jr	compare_bytes
+325   81FF
+326   81FF 45 61 73 79  EASYCF_ID	db "EasyCF10"
+326   8203 43 46 31 30
+327   8207 45 61 73 79  EASYSD_ID	db "EasySD10"
+327   820B 53 44 31 30
+328   820F 48 64 64 45  EASYHDD_207_ID	db "HddEH207"
+328   8213 48 32 30 37
+329   8217 48 64 64 44  EASYHDD_OLD_ID	db "HddDrive"
+329   821B 72 69 76 65
+330   821F 3E 61 D3 17  DRIVER_BRIDGE_SIGNATURE db #3E,#61,#D3,#17,#18,#6F
+330   8223 18 6F
+331   8225
+332   8225 00           selected_device	db 0
+333   8226 00           selected_slot		db 0
+334   8227 00           availability_mask	db 0
+335   8228 FF           current_device		db #FF
+336   8229 00           saved_sd_page		db 0
+337   822A 00           saved_sd1_partition	db 0
+338   822B 00           saved_sd2_partition	db 0
+339   822C 00           saved_cf_partition	db 0
+340   822D
+341   822D              END
+342   822D
+# file closed: switch_device_unified.a80

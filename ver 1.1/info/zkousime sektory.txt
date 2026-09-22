@@ -1,0 +1,294 @@
+nova specifikace VDT:
+- disk muze mit max 4 primarni partisny. Udaje o nich jsou v MBR v nultem sektoru disku.
+- budou dve VDT tabulky pro master a slave= 5x8= 40 bajtu= celkova delka VDT tabulky
+
+- struktura 1 zaznamu (z osmi) ve VDT tabulce:
+;offset	pocet	popis
+**********************
+;0	1	info bajt
+;1	4	first LBA sector of first MBD/MBH file on disk
+
+info bajt o oddilu rika:
+;bit 0		0= oddil neexistuje
+		1= oddil existuje
+;bit 1		1= platny oddil pro speccy (tj. obsahuje jako prvni MBD soubor, lze ho pouzit)
+		0= neplatny oddil pro speccy (tj. neobsahuje MBD soubor)
+;bit 2		0= pokud je bit 1 nulovy, pak tento bit nema vyznam, jinak 0= oddil se nepouziva, 1= oddil se pouziva*
+;bit 3		0= FAT16, 1=FAT32 (volitelne)
+;bity 4-7	rezervovane
+;*v BSDOSu muze soucasne fungovat jen jeden oddil
+
+
+
+
+
+boot sec	2048 dec
+root dir	2180 dec (adresar se soubory MBD)
+soubor		2216 dec (startovni sektor souboru MBD) (ze zacatku dava 2188/#88C)
+
+
+MID – Manufacturer ID
+
+MID je jedinečné číslo přidělené výrobcům organizací SD Association.
+
+Například:
+
+MID (hex)	Výrobce
+01	Panasonic
+02	Toshiba / Kioxia
+03	SanDisk
+1B	Samsung
+1D	AData
+27	Phison
+31	Silicon Power
+74	Transcend
+
+
+Jasně. 😊 Hodnota MID (Manufacturer ID) je první bajt registru CID a identifikuje výrobce karty. Bohužel neexistuje úplně veřejný a stoprocentně kompletní seznam – organizace SD Association přiděluje MID výrobcům a úplný registr není veřejně dostupný. Přesto se za léta nasbíralo dost údajů z reálných karet.
+
+Tady jsou nejčastější hodnoty, na které narazíš:
+
+MID (hex)	Výrobce
+01	Panasonic
+02	Toshiba / Kioxia
+03	SanDisk
+09	ATP Electronics
+1B	Samsung
+1D	AData
+1E	Kingston (některé karty)
+27	Phison
+28	Lexar
+31	Silicon Power
+41	Kingston (další výrobní řady)
+74	Transcend
+76	Patriot
+82	Sony
+89	Delkin
+9C	Angelbird
+9F	Hagiwara Sys-Com
+Poznámky
+Kingston používá více MID, protože karty vyrábí různí OEM výrobci.
+SanDisk (03) je jedna z nejčastějších hodnot.
+Samsung (1B) je také velmi běžná.
+Toshiba dnes vystupuje pod značkou Kioxia, ale MID zůstává stejný.
+Mnoho značek (Verbatim, Intenso, Goodram...) si karty nevyrábí samo. Můžeš tedy koupit kartu jedné značky, ale MID bude patřit skutečnému výrobci řadiče nebo pamětí.
+Doporučení pro software
+
+Pokud budeš MID zobrazovat uživateli, doporučil bych tabulku typu:
+
+01 Panasonic
+02 Toshiba/Kioxia
+03 SanDisk
+1B Samsung
+74 Transcend
+82 Sony
+...
+jiné -> Unknown (0xXX)
+
+Není dobré předpokládat, že znáš všechny možné hodnoty. Noví výrobci se objevují a některé OEM používají vlastní MID.
+
+Pokud chceš, mohu ti připravit kompletní tabulku asi 70–80 známých MID, které se podařilo komunitě za roky sesbírat z reálných SD karet. Ta už je dost obsáhlá a pro ZX Spectrum bys z ní pravděpodobně pokryl přes 99 % karet, se kterými se setkáš.
+
+Poznámka: seznam není úplný a někteří výrobci používají různé MID podle generace karet.
+
+Příkazy CMD9 a CMD10 u paměťových karet SD se používají pro vyčtení specifických interních datových struktur. Karty vrací tyto 128bitové registry (CSD a CID) jako standardní 16bajtový datový blok, po kterém následuje CRC kontrolní součet.Níže jsou uvedeny podrobné popisy struktur obou registrů.
+
+1. Struktura registru CSD (Response pro CMD9)Registr Card-Specific Data obsahuje informace o parametrech karty, jako je kapacita, bloková velikost, rychlost a napájení. Jeho struktura se liší podle typu karty (Standard Capacity vs. High/Extended Capacity).
+
+Běžná struktura CSD verze 2.0 (pro SDHC a SDXC karty)
+- CSD_STRUCTURE (2 bity): Verze struktury CSD
+- TAAC (8 bitů): Doba přístupu k datům (asynchronní část)
+- NSAC (8 bitů): Doba přístupu k datům (násobitel hodin)
+- TRAN_SPEED (8 bitů): Maximální přenosová rychlost (např. 50 MHz)
+- CCC (12 bitů): Podporované sady příkazů (Card Command Classes)
+*** READ_BL_LEN (4 bity): Maximální délka čtecího bloku (obvykle 512 B, tj. 2⁹)
+- READ_BL_PARTIAL (1 bit): Povolení čtení částečných bloků
+- WRITE_BLK_MISALIGN (1 bit): Zarovnání zápisu
+- READ_BLK_MISALIGN (1 bit): Zarovnání čtení
+- DSR_IMP (1 bit): Indikace přítomnosti DSR registru
+*** C_SIZE (22 bitů): Kapacita karty (počet fyzických sektorů o velikosti 512 KiB). Skutečná kapacita se vypočítá: (C_SIZE + 1) × 512 KiB.
+- VDD_R_CURR_MIN / MAX (3 + 3 bity): Proudové nároky při čtení
+- VDD_W_CURR_MIN / MAX (3 + 3 bity): Proudové nároky při zápisu
+- C_SIZE_MULT (3 bity): Násobitel kapacity
+- ERASE_BLK_EN (1 bit): Povolení mazání po blocích
+- SECTOR_SIZE (7 bitů): Velikost mazací jednotky (sektoru)
+- WP_GRP_SIZE (7 bitů): Velikost skupiny pro ochranu proti zápisu
+- WP_GRP_ENABLE (1 bit): Povolení ochrany skupin
+- R2W_FACTOR (3 bity): Faktor doby zápisu
+- WRITE_BL_LEN (4 bity): Maximální délka zápisového bloku
+- WRITE_BL_PARTIAL (1 bit): Povolení zápisu částečných bloků
+- FILE_FORMAT_GRP (1 bit): Skupina formátu souboru
+- COPY (1 bit): Příznak kopírování (bezpečnost)
+*** PERM_WRITE_PROTECT (1 bit): Trvalá ochrana proti zápisu
+*** TMP_WRITE_PROTECT (1 bit): Dočasná ochrana proti zápisu
+- FILE_FORMAT (2 bity): Formát souborového systému
+- CRC (7 bitů): CRC kontrola registru CSD
+- Reserved (1 bit): Vždy 1
+
+
+2. Struktura registru CID (Response pro CMD10)
+
+Registr Card Identification obsahuje neměnné výrobní informace o kartě. Jeho 128 bitů (16 bytů) je rozděleno následovně:
+*** MID (8 bitů / Byte 0): Manufacturer ID – ID výrobce (přiděleno SD Asociací)
+*** OID (16 bitů / Byty 1-2): OEM/Application ID – ID výrobce zařízení nebo karty
+*** PNM (40 bitů / Byty 3-7): Product Name – Název produktu (ASCII řetězec o délce 5 znaků)
+*** PRV (8 bitů / Byte 8): Product Revision – Revize produktu (např. 1.0 jako 0x10)
+*** PSN (32 bitů / Byty 9-12): Product Serial Number – Sériové číslo karty (unikátní)
+*** MDT (12 bitů / Byty 13-14): Manufacturing Date – Datum výroby (např. Měsíc a Rok)
+- CRC (7 bitů / Byte 15): CRC7 kontrolní součet registru CID
+- Reserved (1 bit / Byte 15): Vždy 1
+
+Pokud chcete tyto struktury podrobněji rozpracované, detailní referenční příručky formátování datových paketů naleznete přímo v technické dokumentaci Physical Layer Simplified Specification vydané asociací SD Card Association.
+
+zobrazovat (38 znaků):
+1) SDcard:		->př. "Toshiba / Kioxia,SM,G2G5"
+3) ProductRevisionNr.:	->př. číslo
+4) ProductSerialNr.:	->př. "1234"
+5) Manufacturing date:př. #133		->př. "03/2019" TEXT6
+
+6) ReadBlLen:	->př. "512"	offset 5, bity 0-3 (např. #59->#09= 2 na 9 =512"
+7) SDcard size:		->př. číslo		offset 7- bity 0-5, 8 bity 0-7, 9 bity 0-7, celkem 22 bitů (např.#00 #76 #B2+1 *512= 15558144 kb)
+8) Permanent WP:	->př. "Yes/No"	offset 14, bit 5
+9) Temporal WP:		->př. "Yes/No"	offset 14, bit 4
+
+
+Jak se počítá MDT (datum výroby)
+
+Pro SDHC/SDXC:
+
+horních 8 bitů = rok od 2000
+dolní 4 bity = měsíc
+
+Například:
+
+MDT = 0x1A5
+rok = 2000 + 0x1A = 2026
+měsíc = 5
+
+→ květen 2026
+
+
+výpočet C_SIZE= 11x posun doprava, dostaneme GB
+	ld	de,(C_SIZE)
+	ld	a,(C_SIZE+2)
+
+	ld	b,11
+loop	srl	d
+	rr	e
+	rr	a
+	djnz	loop
+
+						na kalkulacce
+16gb	hl=#E	14	0000 0000 0000 1110	15 558 144
+32	#1d	29	0000 0000 0001 1101	30 973 952
+64	#3b	59	0000 0000 0011 1011	61 947 904
+128	#76	118	0000 0000 0111 0110	123 895 808
+256	#ec	236	0000 0000 1110 1100	247 791 616
+512	#1de	478	0000 0001 1101 1110	501 219 328
+1024	#3bc	956	0000 0011 1011 1100	1002 438 656
+2048	#778	1912	0000 0111 0111 1000	2004 877 312
+
+
+Kapacita	C_SIZE		na kalkulacce	moje rutina	rozdil
+16 GB		0076B2		15 558 144	14		1
+32 GB		00EC4F		30 973 952	29		2
+64 GB		01D89F		61 947 904	59		2
+128 GB		03B13F		123 895 808	118		5
+256 GB		07627F		247 791 616	236		11
+512 GB		0EEFFF		501 219 328	478		23
+1 TB		1DDFFF		1002 438 656	956		46
+2 TB		3BBFFF (typicky)2004 877 312	1912		92
+Maximum		3FFFFF		2147 483 648	2048		99
+
+
+
+Kapacita	C_SIZE		na kalkulacce	AI rutina	Busy
+16 GB		0076B2		15 558 144	14		15
+32 GB		00EC4F		30 973 952	29		30
+64 GB		01D89F		61 947 904	59		60
+128 GB		03B13F		123 895 808	118		119
+256 GB		07627F		247 791 616	236		237
+512 GB		0EEFFF		501 219 328	478		478
+1 TB		1DDFFF		1002 438 656	956		956
+2 TB		3BBFFF (typicky)2004 877 312	1912		1912
+Maximum		3FFFFF		2147 483 648	2048		2048
+
+
+
+
+
+adresy: #1D39	nahrani boot sektoru
+
+co dela EH standart:
+DOS
+90h	start
+c4	call 1b
+1b	ld a,62	strankuje se
+	out (17),a
+
+driver
+1f	jr 90
+
+90	jp a1 a tady se uz vykonava hlavni kod
+
+
+zapisuje, ale koliduje s PIT103
+PIT je ve str 2:
+2 bajty na adrese #38
+2941 bajtu 	na adrese #383-#eff, volno je od #f00	
+
+nahravani fat
+
+SD (chybne)
+sec	adr
+3 	#2400
+2 	#2800
+1 	#2c00
+0f07	#3000
+ 
+HDD spravne
+sec	adr
+3	#2400
+4	#2800
+5	#2c00
+6	#3000
+
+
+
+Zkousime sektory
+
+na zacatku sektoru jsou tyto napisy:
+"soubor1" 107	sec 668		trk 41	sec 13	strana 0	DE=#290D	napis: soubor1
+"soubor2" 108 	sec 669		trk 41	sec 14	strana 0	DE=#290E	napis: soubor2
+"soubor3" 109	sec 670		trk 41	sec 15	strana 0	DE=#290F	napis: soubor3
+"ROUTINE1"111	sec 672		trk 42	sec 1	strana 0	DE=#2A01	napis: 0.7;load sektoruuuu
+
+
+OK20000	#80+1=	129	/	8=	#10/2=	#08		#01
+OK20400						#08		#02
+	OK21000	#84+1=	133	/	8=		#08		#05
+OK22000	#88+1					#08		#81
+OK24000						#09		#01
+OK26000	#98+1=	153	/	8=	#19/2=	#09		#81
+OK28000						#0A		#01
+OK3FC00	#FF					#0F		#88
+OK40000	#100					#10		#01
+OK80000	#200					#20		#01
+OKA7000	#29C					#29		#85
+AA400	#2A9					#2A		#82
+C0000	#300					#30		#01
+100000	#400					#40		#01
+
+
+postup:
+*******
+1) poradovy sektor/pocet sekotru na stopu=A
+2) pokud je A liché, pak jde o stranu 1 a je třeba nastavit bit 7 vE
+3) A/2=B=cislo stopy
+4) modulo B*pocet sektoru na stopu -1= sektor
+
+1) 668/8= 83,5
+2) A je liche, nastavime bit 7 v E na 1
+3) 83,5/2=41,75, stopa=41 (#29)
+4) modulo 41,75=0,75*8=6-1= cislo sektoru v E (bity 0-6)
+

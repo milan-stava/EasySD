@@ -1,0 +1,11 @@
+;==============================================================================
+; EasySD - instance matematickych rutin
+;
+; Pred timto souborem musi byt jednou vlozen:
+;       include "math_macros.a80"
+;==============================================================================
+
+        MATH_MUL32x8  MUL32x8
+        MATH_ADD32_16 ADD32_16
+        MATH_SUB32_8  SUB32_8
+        MATH_ADD32_32 ADD32_32
