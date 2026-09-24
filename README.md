@@ -6,6 +6,15 @@ EasySD is a BSDOS utility for ZX Spectrum computers with MB03+, MB03+ Slim or eL
 
 EasySD 1.1 extends a full MB03+ with runtime switching between CF, SD1 and SD2. Switching does not restart BSDOS and preserves normal RAM contents.
 
+<p align="center">
+  <img src="images/SD1_1_manual.png" alt="EasySD 1.1 partition overview" width="47%">
+  <img src="images/SD1_1_manual_selected.png" alt="EasySD 1.1 manual partition selection" width="47%">
+</p>
+
+<p align="center">
+  <img src="images/SD1_1_switcher_1_1.png" alt="FULL Switcher 1.1" width="47%">
+</p>
+
 Main features:
 
 - independent detection of both MB03+ SD slots
