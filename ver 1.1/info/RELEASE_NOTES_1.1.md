@@ -1,45 +1,38 @@
-# EasySD / EasyCF 1.1 release notes
+# EasySD 1.1
 
-EasySD / EasyCF 1.1 is an MB03+ extension providing runtime switching between CF, SD1 and SD2 without a BSDOS reset.
+EasySD 1.1 adds the SD part of the shared EasySD / EasyCF 1.1 system on a full MB03+.
 
-## Highlights
+## Main changes
 
-- CF, SD1 and SD2 runtime switching
-- independent handling of both MB03+ SD slots
-- automatic and manual SD partition selection
-- support for one-card and two-card configurations
-- safe device detection before every switch
-- BASIC menu with current-system and availability reporting
-- BSDOS cache invalidation through `KILLX`
-- active device/partition labels in catalogue corners
-- catalogue write-protection indicator
-- early compatible-EasyCF validation
-- configurable EasySD SRAM page 6-32
+- runtime switching between CF, SD1 and SD2 without restarting BSDOS
+- independent detection and partition selection for SD1 and SD2
+- support for configurations with one or two inserted SD cards
+- Basic Switcher 1.0 for complete CF / SD1 / SD2 devices
+- FULL Switcher 1.1 with additional P1-P4 selection
+- 26-character user-defined VDT partition names
+- active device and partition displayed in the BSDOS catalogue
+- write-protection symbol displayed next to the disk number
+- unavailable devices and invalid partitions cannot be activated
 
-## Files
+## Installation
 
-- `EasySD_1_1_INSTALL.tap` - MB03+ installer
-- `SWITCH_MENU.tap` - BASIC CF/SD1/SD2 switcher with machine-code backend
-- `FULL_SWITCHER_1_1/FULL_SWITCHER_1_1.tap` - full CF/SD1/SD2 and P1-P4 switcher with VDT name editor
-- `FULL_SWITCHER_1_1/FULL_SWITCHER_1_1.bas` - readable ZX BASIC source
-- `FULL_SWITCHER_1_1/FULL_SWITCHER_1_1.a80` - backend and fast renderer source
-- `EasySD_EasyCF_v1.1.zip` - complete release package
-
-## Installation order
-
-1. Install compatible EasyCF 1.0.
+1. Install EasyCF 1.1.
 2. Run `EasySD_1_1_INSTALL.tap`.
-3. Select or confirm the SD partitions.
-4. Load `SWITCH_MENU.tap` to switch devices while BSDOS is running.
+3. Confirm the automatically selected SD partitions or hold SPACE for manual selection.
+4. Use `SWITCH_MENU.tap` to switch complete devices, or FULL Switcher 1.1 for device and partition selection.
+
+EasyCF must be installed first because it creates the shared switching interface used by EasySD 1.1.
+
+## Downloads
+
+- `EasySD_EasyCF_v1.1.zip` - complete package with the installer, both switchers and CZ/EN/DE documentation
+- `EasySD_1_1_INSTALL.tap` - EasySD 1.1 installer for a full MB03+
+- `SWITCH_MENU.tap` - Basic Switcher 1.0
+
+The source code and build scripts are stored under `ver 1.1` in the repository.
 
 ## Compatibility
 
-This release targets MB03+ and BSDOS 3.08. Standalone eLeMeNt ZX and MB03+ Slim users should continue using EasySD 1.0.1.
+The shared CF / SD1 / SD2 system is intended for a full MB03+. Standalone eLeMeNt ZX and MB03+ Slim users should continue using EasySD 1.0.1.
 
-## Verification
-
-The final installer and switcher were verified on real MB03+ hardware. Tests covered CF/SD1/SD2 switching, configurations with a missing SD card, repeated catalogues, LOAD/SAVE, non-empty `.SEARCH`, write-protection display and rejection of unavailable targets.
-
-## Known external limitation
-
-The MB03+ BOOT `E` path does not yet initialize SD2 when SD2 was the last active device. This belongs to the separate MB03+ BOOT project and does not affect switching from `SWITCH_MENU.tap`.
+EasySD 1.1 and both switchers accept compatible EasyCF 1.0.1 and EasyCF 1.1 drivers, but EasyCF 1.1 is the recommended release for a new installation.
